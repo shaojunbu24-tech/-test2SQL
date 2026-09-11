@@ -1,6 +1,15 @@
-# OpenAI 官方 Python SDK，用于调用 Responses API。
+# OpenAI 官方 Python SDK，是 LangChain OpenAI 兼容调用的底层客户端。
 openai>=2.0.0,<3.0.0
 # PyYAML 用于读取本体和数据库映射配置。
 PyYAML>=6.0,<7.0
 # MySQL Connector 用于可选的 --execute 只读真实查询模式。
 mysql-connector-python>=9.0,<10.0
+# LangChain Core 和 OpenAI 集成负责把提示词、模型和 JSON 解析组成规划链。
+langchain-core>=0.3,<0.4
+langchain-openai>=0.3,<0.4
+# JSON Schema 对模型生成的候选 Query IR 做第一层结构校验。
+jsonschema>=4.20,<5.0
+# Streamlit 提供本地可视化调试界面。
+streamlit>=1.40,<2.0
+# macOS 自带 Python 3.9 使用 LibreSSL；1.x 可避免 urllib3 的 OpenSSL 版本警告。
+urllib3>=1.26,<2.0

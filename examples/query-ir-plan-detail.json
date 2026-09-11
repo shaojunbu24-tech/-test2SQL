@@ -1,0 +1,9 @@
+{
+  "goal": "查询生产计划详细信息",
+  "parameters": {"plan_id": 665, "threshold": null, "limit": 100},
+  "steps": [
+    {"stepId": "s1", "op": "Scan", "entityType": "ProductionPlan", "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}], "bind": "plans"},
+    {"stepId": "s2", "op": "Project", "input": "plans", "dimensions": ["ProductionPlan.sourceId", "ProductionPlan.planNo", "ProductionPlan.name", "ProductionPlan.plannedQty", "ProductionPlan.statusCode", "ProductionPlan.planStartTime", "ProductionPlan.planEndTime"], "metrics": [], "bind": "projectedPlans"},
+    {"stepId": "s3", "op": "Limit", "input": "projectedPlans", "parameter": "limit", "bind": "result"}
+  ]
+}

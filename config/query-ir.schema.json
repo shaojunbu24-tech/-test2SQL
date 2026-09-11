@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mvp:material-analysis:candidate-query-ir:0.3",
+  "title": "CandidateOntologyQueryIR",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["goal", "parameters", "steps"],
+  "properties": {
+    "goal": {"type": "string", "minLength": 1},
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_id", "threshold", "limit"],
+      "properties": {
+        "plan_id": {"type": ["integer", "null"], "minimum": 1},
+        "threshold": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 200}
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 30,
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/scanStep"},
+          {"$ref": "#/$defs/traverseStep"},
+          {"$ref": "#/$defs/aggregateStep"},
+          {"$ref": "#/$defs/computeMetricStep"},
+          {"$ref": "#/$defs/filterStep"},
+          {"$ref": "#/$defs/sortStep"},
+          {"$ref": "#/$defs/projectStep"},
+          {"$ref": "#/$defs/limitStep"}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "stepId": {"type": "string", "pattern": "^s[1-9][0-9]*$"},
+    "bind": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+    "input": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      ]
+    },
+    "scanFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "operator", "parameter"],
+      "properties": {
+        "property": {"const": "sourceId"},
+        "operator": {"const": "EQ"},
+        "parameter": {"const": "plan_id"}
+      }
+    },
+    "scanStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "entityType", "filters", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Scan"},
+        "entityType": {"const": "ProductionPlan"},
+        "filters": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/scanFilter"}},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "traverseStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "relation", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Traverse"},
+        "input": {"type": "string", "minLength": 1},
+        "relation": {"type": "string", "minLength": 1},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "aggregateStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "metrics", "groupBy", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Aggregate"},
+        "input": {"type": "string", "minLength": 1},
+        "metrics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "groupBy": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "computeMetricStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "metrics", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "ComputeMetric"},
+        "input": {"$ref": "#/$defs/input"},
+        "metrics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "metricPredicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "operator", "parameter"],
+      "properties": {
+        "metric": {"type": "string"},
+        "operator": {"enum": ["EQ", "GT", "GTE", "LT", "LTE"]},
+        "parameter": {"const": "threshold"}
+      }
+    },
+    "filterStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "predicates", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Filter"},
+        "input": {"type": "string", "minLength": 1},
+        "predicates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/metricPredicate"}},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "sortStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "by", "direction", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Sort"},
+        "input": {"type": "string", "minLength": 1},
+        "by": {"type": "string", "minLength": 1},
+        "direction": {"enum": ["ASC", "DESC"]},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "projectStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "dimensions", "metrics", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Project"},
+        "input": {"type": "string", "minLength": 1},
+        "dimensions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "metrics": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    },
+    "limitStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "op", "input", "parameter", "bind"],
+      "properties": {
+        "stepId": {"$ref": "#/$defs/stepId"},
+        "op": {"const": "Limit"},
+        "input": {"type": "string", "minLength": 1},
+        "parameter": {"const": "limit"},
+        "bind": {"$ref": "#/$defs/bind"}
+      }
+    }
+  }
+}

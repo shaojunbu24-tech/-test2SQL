@@ -1,0 +1,12 @@
+{
+  "goal": "查询生产计划各工序任务和物料的领料量",
+  "parameters": {"plan_id": 665, "threshold": null, "limit": 100},
+  "steps": [
+    {"stepId": "s1", "op": "Scan", "entityType": "ProductionPlan", "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}], "bind": "plans"},
+    {"stepId": "s2", "op": "Traverse", "input": "plans", "relation": "HAS_PROCESS_TASK", "bind": "tasks"},
+    {"stepId": "s3", "op": "Traverse", "input": "tasks", "relation": "HAS_MATERIAL_ISSUE", "bind": "issues"},
+    {"stepId": "s4", "op": "Aggregate", "input": "issues", "metrics": ["grossIssuedQty"], "groupBy": ["ProcessTask", "Product"], "bind": "issueMetrics"},
+    {"stepId": "s5", "op": "Project", "input": "issueMetrics", "dimensions": ["ProcessTask.sourceId", "ProcessTask.taskNo", "Product.sourceId", "Product.code", "Product.name"], "metrics": ["grossIssuedQty"], "bind": "projectedIssues"},
+    {"stepId": "s6", "op": "Limit", "input": "projectedIssues", "parameter": "limit", "bind": "result"}
+  ]
+}

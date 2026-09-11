@@ -1,0 +1,30 @@
+{
+  "goal": "分析生产计划的投料差异并筛选严重异常",
+  "parameters": {
+    "plan_id": 665,
+    "threshold": 0.05,
+    "limit": 100
+  },
+  "steps": [
+    {
+      "stepId": "s1",
+      "op": "Scan",
+      "entityType": "ProductionPlan",
+      "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}],
+      "bind": "plans"
+    },
+    {"stepId": "s2", "op": "Traverse", "input": "plans", "relation": "HAS_PROCESS_TASK", "bind": "tasks"},
+    {"stepId": "s3", "op": "Traverse", "input": "plans", "relation": "HAS_PLAN_BOM_ITEM", "bind": "planBomItems"},
+    {"stepId": "s4", "op": "Traverse", "input": "tasks", "relation": "HAS_MATERIAL_ISSUE", "bind": "issues"},
+    {"stepId": "s5", "op": "Traverse", "input": "tasks", "relation": "HAS_MATERIAL_RETURN", "bind": "returns"},
+    {"stepId": "s6", "op": "Traverse", "input": "tasks", "relation": "HAS_PRODUCTION_REPORT", "bind": "reports"},
+    {"stepId": "s7", "op": "Aggregate", "input": "issues", "metrics": ["grossIssuedQty"], "groupBy": ["ProcessTask", "Product"], "bind": "issueMetrics"},
+    {"stepId": "s8", "op": "Aggregate", "input": "returns", "metrics": ["returnedQty"], "groupBy": ["ProcessTask", "Product"], "bind": "returnMetrics"},
+    {"stepId": "s9", "op": "Aggregate", "input": "reports", "metrics": ["actualReportedQty"], "groupBy": ["ProcessTask"], "bind": "reportMetrics"},
+    {"stepId": "s10", "op": "ComputeMetric", "input": ["plans", "tasks", "issueMetrics", "returnMetrics", "reportMetrics", "planBomItems"], "metrics": ["ratedOutputQty", "signedDifferenceQty", "signedDifferenceRate", "severityRate"], "bind": "metricResults"},
+    {"stepId": "s11", "op": "Filter", "input": "metricResults", "predicates": [{"metric": "severityRate", "operator": "GTE", "parameter": "threshold"}], "bind": "filteredResults"},
+    {"stepId": "s12", "op": "Sort", "input": "filteredResults", "by": "severityRate", "direction": "DESC", "bind": "sortedResults"},
+    {"stepId": "s13", "op": "Project", "input": "sortedResults", "dimensions": ["ProductionPlan.sourceId", "ProductionPlan.planNo", "ProductionPlan.name", "ProcessTask.sourceId", "ProcessTask.taskNo", "Product.sourceId", "Product.code", "Product.name"], "metrics": ["grossIssuedQty", "returnedQty", "ratedOutputQty", "actualReportedQty", "signedDifferenceQty", "signedDifferenceRate", "severityRate"], "bind": "projectedResults"},
+    {"stepId": "s14", "op": "Limit", "input": "projectedResults", "parameter": "limit", "bind": "result"}
+  ]
+}

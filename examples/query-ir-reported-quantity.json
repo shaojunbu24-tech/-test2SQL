@@ -1,0 +1,12 @@
+{
+  "goal": "查询生产计划各工序任务的实际报工数量",
+  "parameters": {"plan_id": 665, "threshold": null, "limit": 100},
+  "steps": [
+    {"stepId": "s1", "op": "Scan", "entityType": "ProductionPlan", "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}], "bind": "plans"},
+    {"stepId": "s2", "op": "Traverse", "input": "plans", "relation": "HAS_PROCESS_TASK", "bind": "tasks"},
+    {"stepId": "s3", "op": "Traverse", "input": "tasks", "relation": "HAS_PRODUCTION_REPORT", "bind": "reports"},
+    {"stepId": "s4", "op": "Aggregate", "input": "reports", "metrics": ["actualReportedQty"], "groupBy": ["ProcessTask"], "bind": "reportMetrics"},
+    {"stepId": "s5", "op": "Project", "input": "reportMetrics", "dimensions": ["ProcessTask.sourceId", "ProcessTask.taskNo"], "metrics": ["actualReportedQty"], "bind": "projectedReports"},
+    {"stepId": "s6", "op": "Limit", "input": "projectedReports", "parameter": "limit", "bind": "result"}
+  ]
+}

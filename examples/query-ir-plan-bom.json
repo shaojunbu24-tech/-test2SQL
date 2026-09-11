@@ -1,0 +1,12 @@
+{
+  "goal": "查询生产计划对应的计划 BOM 明细和物料",
+  "parameters": {"plan_id": 665, "threshold": null, "limit": 100},
+  "steps": [
+    {"stepId": "s1", "op": "Scan", "entityType": "ProductionPlan", "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}], "bind": "plans"},
+    {"stepId": "s2", "op": "Traverse", "input": "plans", "relation": "HAS_PLAN_BOM_ITEM", "bind": "bomItems"},
+    {"stepId": "s3", "op": "Traverse", "input": "bomItems", "relation": "BOM_ITEM_MATERIAL", "bind": "bomMaterials"},
+    {"stepId": "s4", "op": "Sort", "input": "bomMaterials", "by": "PlanBOMItem.layer", "direction": "ASC", "bind": "sortedBom"},
+    {"stepId": "s5", "op": "Project", "input": "sortedBom", "dimensions": ["ProductionPlan.sourceId", "ProductionPlan.planNo", "PlanBOMItem.sourceId", "PlanBOMItem.layer", "Product.sourceId", "Product.code", "Product.name", "Product.specification", "PlanBOMItem.standardUsage", "PlanBOMItem.wastageRate"], "metrics": [], "bind": "projectedBom"},
+    {"stepId": "s6", "op": "Limit", "input": "projectedBom", "parameter": "limit", "bind": "result"}
+  ]
+}

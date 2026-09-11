@@ -1,0 +1,21 @@
+{
+  "goal": "查询生产计划下的有效工序任务",
+  "parameters": {
+    "plan_id": 665,
+    "threshold": null,
+    "limit": 100
+  },
+  "steps": [
+    {
+      "stepId": "s1",
+      "op": "Scan",
+      "entityType": "ProductionPlan",
+      "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}],
+      "bind": "plans"
+    },
+    {"stepId": "s2", "op": "Traverse", "input": "plans", "relation": "HAS_PROCESS_TASK", "bind": "tasks"},
+    {"stepId": "s3", "op": "Project", "input": "tasks", "dimensions": ["ProcessTask.sourceId", "ProcessTask.taskNo", "ProcessTask.plannedQty", "ProcessTask.statusCode", "ProcessTask.startTime", "ProcessTask.finishTime"], "metrics": [], "bind": "projectedTasks"},
+    {"stepId": "s4", "op": "Limit", "input": "projectedTasks", "parameter": "limit", "bind": "result"}
+  ]
+}
+

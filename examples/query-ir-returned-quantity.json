@@ -1,0 +1,12 @@
+{
+  "goal": "查询生产计划各工序任务和物料的退料量",
+  "parameters": {"plan_id": 665, "threshold": null, "limit": 100},
+  "steps": [
+    {"stepId": "s1", "op": "Scan", "entityType": "ProductionPlan", "filters": [{"property": "sourceId", "operator": "EQ", "parameter": "plan_id"}], "bind": "plans"},
+    {"stepId": "s2", "op": "Traverse", "input": "plans", "relation": "HAS_PROCESS_TASK", "bind": "tasks"},
+    {"stepId": "s3", "op": "Traverse", "input": "tasks", "relation": "HAS_MATERIAL_RETURN", "bind": "returns"},
+    {"stepId": "s4", "op": "Aggregate", "input": "returns", "metrics": ["returnedQty"], "groupBy": ["ProcessTask", "Product"], "bind": "returnMetrics"},
+    {"stepId": "s5", "op": "Project", "input": "returnMetrics", "dimensions": ["ProcessTask.sourceId", "ProcessTask.taskNo", "Product.sourceId", "Product.code", "Product.name"], "metrics": ["returnedQty"], "bind": "projectedReturns"},
+    {"stepId": "s6", "op": "Limit", "input": "projectedReturns", "parameter": "limit", "bind": "result"}
+  ]
+}

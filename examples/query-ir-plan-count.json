@@ -1,0 +1,10 @@
+{
+  "goal": "统计当前有效生产计划数量",
+  "parameters": {"plan_id": null, "threshold": null, "limit": 1},
+  "steps": [
+    {"stepId": "s1", "op": "Scan", "entityType": "ProductionPlan", "filters": [], "bind": "plans"},
+    {"stepId": "s2", "op": "Aggregate", "input": "plans", "metrics": ["productionPlanCount"], "groupBy": [], "bind": "planCount"},
+    {"stepId": "s3", "op": "Project", "input": "planCount", "dimensions": [], "metrics": ["productionPlanCount"], "bind": "projectedCount"},
+    {"stepId": "s4", "op": "Limit", "input": "projectedCount", "parameter": "limit", "bind": "result"}
+  ]
+}

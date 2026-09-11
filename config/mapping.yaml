@@ -1,214 +1,228 @@
-# 映射版本，用于标识这一组 SQL 模板对应的数据库结构版本。
-version: mom-test@0.1.0
-# 当前 SQL 模板面向的数据库。
+# 这是 MVP 动态 SQL 编译器使用的物理映射版本。
+version: mom-test@0.3.0
+# 编译器和数据库执行器只能访问这个逻辑库。
 database: mom-test
 
-# queries 将本体查询意图映射成固定、可审查的参数化 SQL。
-queries:
-  # GET_PRODUCTION_PLAN 对应查询单个生产计划。
-  GET_PRODUCTION_PLAN:
-    # required_parameters 用于阻止缺少计划 ID 的查询进入编译阶段。
-    required_parameters: [plan_id]
-    # parameters 决定哪些模型输出可以绑定到 SQL，占位符之外的内容不会进入 SQL。
-    parameters: [plan_id]
-    # sql 是经过人工登记的只读 SQL 模板。
-    sql: |
-      -- 根据源系统计划 ID 查询一条有效生产计划。
-      SELECT
-          p.id AS plan_id,
-          p.code AS plan_code,
-          p.name AS plan_name,
-          p.product_id,
-          p.plan_produce_num AS planned_quantity,
-          p.plan_status_id AS status_code,
-          p.plan_start_time,
-          p.plan_end_time
-      FROM `mom-test`.produce_plan AS p
-      WHERE p.deleted = 0
-        AND p.id = %(plan_id)s;
+# entities 把本体实体及属性映射到数据库结构；这里不保存完整 SQL 模板。
+entities:
+  ProductionPlan:
+    source_kind: table
+    table: produce_plan
+    alias: p
+    primary_key: id
+    active_filter: {column: deleted, operator: EQ, value: 0}
+    properties:
+      sourceId: id
+      planNo: code
+      name: name
+      plannedQty: plan_produce_num
+      statusCode: plan_status_id
+      planStartTime: plan_start_time
+      planEndTime: plan_end_time
+      outputProductId: product_id
 
-  # LIST_PROCESS_TASKS 对应查询一个计划下的工序任务。
-  LIST_PROCESS_TASKS:
-    # required_parameters 用于阻止缺少计划 ID 的查询进入编译阶段。
-    required_parameters: [plan_id]
-    # parameters 决定哪些模型输出可以绑定到 SQL。
-    parameters: [plan_id, limit]
-    # sql 是经过人工登记的只读 SQL 模板。
-    sql: |
-      -- 查询指定生产计划下的有效工序任务；当前库不经过空的生产工单表。
-      SELECT
-          t.id AS process_task_id,
-          t.make_process_task_code AS process_task_code,
-          t.produce_plan_id AS plan_id,
-          t.product_id,
-          t.make_process_id,
-          t.plan_produce_num AS planned_quantity,
-          t.status_id AS status_code,
-          t.start_time,
-          t.finish_time
-      FROM `mom-test`.produce_order_make_process_task AS t
-      WHERE t.deleted = 0
-        AND t.produce_plan_id = %(plan_id)s
-      ORDER BY t.sort, t.id
-      LIMIT %(limit)s;
+  ProcessTask:
+    source_kind: table
+    table: produce_order_make_process_task
+    alias: t
+    primary_key: id
+    active_filter: {column: deleted, operator: EQ, value: 0}
+    properties:
+      sourceId: id
+      taskNo: make_process_task_code
+      planId: produce_plan_id
+      outputProductId: product_id
+      plannedQty: plan_produce_num
+      statusCode: status_id
+      startTime: start_time
+      finishTime: finish_time
 
-  # ANALYZE_MATERIAL_GAP 对应计划级料差分析。
-  ANALYZE_MATERIAL_GAP:
-    # required_parameters 用于阻止缺少计划 ID 的查询进入编译阶段。
-    required_parameters: [plan_id]
-    # parameters 决定哪些模型输出可以绑定到 SQL。
-    parameters: [plan_id, threshold, limit]
-    # sql 使用 CTE 分阶段聚合，避免领料和报工直接 JOIN 后相互放大数量。
-    sql: |
-      -- 第一步：确定需要分析的有效工序任务。
-      WITH task_scope AS (
-          SELECT
-              t.id AS task_id,
-              t.make_process_task_code AS task_code,
-              t.produce_plan_id AS plan_id,
-              p.code AS plan_code,
-              p.name AS plan_name,
-              t.product_id AS output_product_id
-          FROM `mom-test`.produce_order_make_process_task AS t
-          JOIN `mom-test`.produce_plan AS p
-            ON p.id = t.produce_plan_id
-           AND p.deleted = 0
-          WHERE t.deleted = 0
-            AND t.produce_plan_id = %(plan_id)s
-      ),
-      -- 第二步：找到任务输出产品在计划 BOM 中的直接子物料及标准用量。
-      bom_material AS (
-          SELECT DISTINCT
-              t.task_id,
-              child.product_id AS material_id,
-              child.use_num AS standard_usage
-          FROM task_scope AS t
-          JOIN `mom-test`.produce_plan_bom_detail AS output_node
-            ON output_node.plan_id = t.plan_id
-           AND output_node.product_id = t.output_product_id
-           AND output_node.deleted = 0
-          JOIN `mom-test`.produce_plan_bom_detail AS child
-            ON child.plan_id = t.plan_id
-           AND child.parent_id = output_node.id
-           AND child.deleted = 0
-      ),
-      -- 第三步：按工序任务和物料分别汇总有效领料数量。
-      issue_agg AS (
-          SELECT
-              pick.make_process_task_id AS task_id,
-              detail.product_id AS material_id,
-              SUM(COALESCE(detail.num, 0)) AS issued_quantity
-          FROM `mom-test`.produce_pick AS pick
-          JOIN `mom-test`.produce_pick_relation_product AS detail
-            ON detail.pick_id = pick.id
-           AND detail.deleted = 0
-          WHERE pick.deleted = 0
-          GROUP BY pick.make_process_task_id, detail.product_id
-      ),
-      -- 第四步：按工序任务和物料分别汇总有效退料数量，当前版本只展示但不扣减。
-      return_agg AS (
-          SELECT
-              ret.make_process_task_id AS task_id,
-              detail.product_id AS material_id,
-              SUM(COALESCE(detail.num, 0)) AS returned_quantity
-          FROM `mom-test`.produce_return AS ret
-          JOIN `mom-test`.produce_return_relation_product AS detail
-            ON detail.return_id = ret.id
-           AND detail.deleted = 0
-          WHERE ret.deleted = 0
-          GROUP BY ret.make_process_task_id, detail.product_id
-      ),
-      -- 第五步：按工序任务汇总自检合格数和自检不合格数，禁止使用当前全空的 report_num。
-      report_agg AS (
-          SELECT
-              report.process_task_id AS task_id,
-              SUM(
-                  COALESCE(report.produce_num, 0)
-                  + COALESCE(report.self_check_ng_num, 0)
-              ) AS actual_reported_quantity
-          FROM `mom-test`.produce_report AS report
-          WHERE report.deleted = 0
-          GROUP BY report.process_task_id
-      ),
-      -- 第六步：把 BOM、领退料和报工聚合结果对齐到同一任务和物料粒度。
-      metric_base AS (
-          SELECT
-              t.plan_id,
-              t.plan_code,
-              t.plan_name,
-              t.task_id,
-              t.task_code,
-              bom.material_id,
-              bom.standard_usage,
-              COALESCE(issue.issued_quantity, 0) AS issued_quantity,
-              COALESCE(ret.returned_quantity, 0) AS returned_quantity,
-              COALESCE(report.actual_reported_quantity, 0) AS actual_reported_quantity
-          FROM task_scope AS t
-          JOIN bom_material AS bom
-            ON bom.task_id = t.task_id
-          LEFT JOIN issue_agg AS issue
-            ON issue.task_id = t.task_id
-           AND issue.material_id = bom.material_id
-          LEFT JOIN return_agg AS ret
-            ON ret.task_id = t.task_id
-           AND ret.material_id = bom.material_id
-          LEFT JOIN report_agg AS report
-            ON report.task_id = t.task_id
-      ),
-      -- 第七步：标准用量为零时返回 NULL，避免除零得到伪造指标。
-      rated_output AS (
-          SELECT
-              base.*,
-              CASE
-                  WHEN base.standard_usage IS NULL OR base.standard_usage = 0 THEN NULL
-                  ELSE base.issued_quantity / base.standard_usage
-              END AS rated_output_quantity
-          FROM metric_base AS base
-      ),
-      -- 第八步：计算有方向的差异量，负数可作为超报候选线索。
-      difference_result AS (
-          SELECT
-              rated.*,
-              rated.rated_output_quantity - rated.actual_reported_quantity AS signed_difference_quantity
-          FROM rated_output AS rated
-      ),
-      -- 第九步：分别保留有符号差异率和用于阈值判断的绝对严重度。
-      final_metric AS (
-          SELECT
-              diff.*,
-              CASE
-                  WHEN diff.rated_output_quantity IS NULL OR diff.rated_output_quantity = 0 THEN NULL
-                  ELSE diff.signed_difference_quantity / diff.rated_output_quantity
-              END AS signed_difference_rate,
-              CASE
-                  WHEN diff.rated_output_quantity IS NULL OR diff.rated_output_quantity = 0 THEN NULL
-                  ELSE ABS(diff.signed_difference_quantity / diff.rated_output_quantity)
-              END AS severity_rate
-          FROM difference_result AS diff
-      )
-      -- 第十步：输出 SQL 查询结果；模型只提供参数，不参与表名、字段和公式生成。
-      SELECT
-          metric.plan_id,
-          metric.plan_code,
-          metric.plan_name,
-          metric.task_id,
-          metric.task_code,
-          metric.material_id,
-          product.code AS material_code,
-          product.name AS material_name,
-          metric.standard_usage,
-          metric.issued_quantity,
-          metric.returned_quantity,
-          metric.rated_output_quantity,
-          metric.actual_reported_quantity,
-          metric.signed_difference_quantity,
-          metric.signed_difference_rate,
-          metric.severity_rate
-      FROM final_metric AS metric
-      LEFT JOIN `mom-test`.design_product AS product
-        ON product.id = metric.material_id
-       AND product.deleted = 0
-      WHERE (%(threshold)s IS NULL OR metric.severity_rate >= %(threshold)s)
-      ORDER BY metric.severity_rate DESC, metric.task_id, metric.material_id
-      LIMIT %(limit)s;
+  PlanBOMItem:
+    source_kind: table
+    table: produce_plan_bom_detail
+    alias: bom
+    primary_key: id
+    active_filter: {column: deleted, operator: EQ, value: 0}
+    properties:
+      sourceId: id
+      planId: plan_id
+      parentId: parent_id
+      productId: product_id
+      standardUsage: use_num
+      wastageRate: wastage_rate
+      layer: layer
 
+  MaterialIssue:
+    source_kind: header_detail
+    alias: issue
+    header_table: produce_pick
+    header_alias: pick
+    detail_table: produce_pick_relation_product
+    detail_alias: issue_line
+    detail_join: {left: pick.id, right: issue_line.pick_id}
+    active_filters:
+      - {alias: pick, column: deleted, operator: EQ, value: 0}
+      - {alias: issue_line, column: deleted, operator: EQ, value: 0}
+    properties:
+      taskId: pick.make_process_task_id
+      materialId: issue_line.product_id
+      quantity: issue_line.num
+
+  MaterialReturn:
+    source_kind: header_detail
+    alias: material_return
+    header_table: produce_return
+    header_alias: ret
+    detail_table: produce_return_relation_product
+    detail_alias: return_line
+    detail_join: {left: ret.id, right: return_line.return_id}
+    active_filters:
+      - {alias: ret, column: deleted, operator: EQ, value: 0}
+      - {alias: return_line, column: deleted, operator: EQ, value: 0}
+    properties:
+      taskId: ret.make_process_task_id
+      materialId: return_line.product_id
+      quantity: return_line.num
+
+  ProductionReport:
+    source_kind: table
+    table: produce_report
+    alias: report
+    primary_key: id
+    active_filter: {column: deleted, operator: EQ, value: 0}
+    properties:
+      sourceId: id
+      taskId: process_task_id
+      selfQualifiedQty: produce_num
+      selfNonconformingQty: self_check_ng_num
+
+  Product:
+    source_kind: table
+    table: design_product
+    alias: product
+    primary_key: id
+    active_filter: {column: deleted, operator: EQ, value: 0}
+    properties:
+      sourceId: id
+      code: code
+      name: name
+      specification: spec
+
+# relations 是本体 Traverse 算子的物理实现，不限定整条查询路线。
+relations:
+  HAS_PROCESS_TASK:
+    from: ProductionPlan
+    to: ProcessTask
+    joins:
+      - {left: ProductionPlan.sourceId, right: ProcessTask.planId}
+
+  HAS_PLAN_BOM_ITEM:
+    from: ProductionPlan
+    to: PlanBOMItem
+    joins:
+      - {left: ProductionPlan.sourceId, right: PlanBOMItem.planId}
+
+  BOM_ITEM_MATERIAL:
+    from: PlanBOMItem
+    to: Product
+    joins:
+      - {left: PlanBOMItem.productId, right: Product.sourceId}
+
+  HAS_MATERIAL_ISSUE:
+    from: ProcessTask
+    to: MaterialIssue
+    joins:
+      - {left: ProcessTask.sourceId, right: MaterialIssue.taskId}
+
+  HAS_MATERIAL_RETURN:
+    from: ProcessTask
+    to: MaterialReturn
+    joins:
+      - {left: ProcessTask.sourceId, right: MaterialReturn.taskId}
+
+  HAS_PRODUCTION_REPORT:
+    from: ProcessTask
+    to: ProductionReport
+    joins:
+      - {left: ProcessTask.sourceId, right: ProductionReport.taskId}
+
+# metrics 登记指标来源、粒度和依赖；模型只能引用指标 ID。
+metrics:
+  productionPlanCount:
+    kind: aggregate_count
+    source_entity: ProductionPlan
+    source_property: sourceId
+    aggregation: COUNT
+    grain: []
+
+  grossIssuedQty:
+    kind: aggregate
+    source_entity: MaterialIssue
+    source_property: quantity
+    aggregation: SUM
+    grain: [ProcessTask, Product]
+
+  returnedQty:
+    kind: aggregate
+    source_entity: MaterialReturn
+    source_property: quantity
+    aggregation: SUM
+    grain: [ProcessTask, Product]
+
+  actualReportedQty:
+    kind: aggregate_expression
+    source_entity: ProductionReport
+    source_properties: [selfQualifiedQty, selfNonconformingQty]
+    row_operator: ADD
+    aggregation: SUM
+    grain: [ProcessTask]
+
+  ratedOutputQty:
+    kind: derived
+    dependencies: [grossIssuedQty, PlanBOMItem.standardUsage]
+    operator: DIVIDE
+    zero_division: NULL
+    grain: [ProcessTask, Product]
+
+  signedDifferenceQty:
+    kind: derived
+    dependencies: [ratedOutputQty, actualReportedQty]
+    operator: SUBTRACT
+    grain: [ProcessTask, Product]
+
+  signedDifferenceRate:
+    kind: derived
+    dependencies: [signedDifferenceQty, ratedOutputQty]
+    operator: DIVIDE
+    zero_division: NULL
+    grain: [ProcessTask, Product]
+
+  severityRate:
+    kind: derived
+    dependencies: [signedDifferenceRate]
+    operator: ABS
+    grain: [ProcessTask, Product]
+
+# output_fields 是 Project 和 Sort 可引用的本体字段白名单。
+output_fields:
+  ProductionPlan.sourceId: plan_id
+  ProductionPlan.planNo: plan_code
+  ProductionPlan.name: plan_name
+  ProductionPlan.plannedQty: planned_quantity
+  ProductionPlan.statusCode: plan_status_code
+  ProductionPlan.planStartTime: plan_start_time
+  ProductionPlan.planEndTime: plan_end_time
+  ProcessTask.sourceId: task_id
+  ProcessTask.taskNo: task_code
+  ProcessTask.plannedQty: task_planned_quantity
+  ProcessTask.statusCode: task_status_code
+  ProcessTask.startTime: task_start_time
+  ProcessTask.finishTime: task_finish_time
+  PlanBOMItem.sourceId: bom_item_id
+  PlanBOMItem.standardUsage: standard_usage
+  PlanBOMItem.wastageRate: wastage_rate
+  PlanBOMItem.layer: bom_layer
+  Product.sourceId: material_id
+  Product.code: material_code
+  Product.name: material_name
+  Product.specification: material_specification
