@@ -1,0 +1,7 @@
+{
+  "intent": "ANALYZE_MATERIAL_GAP",
+  "plan_mention": "生产计划ID 665",
+  "plan_id": 665,
+  "threshold": 0.05,
+  "limit": 100
+}

@@ -1,0 +1,6 @@
+# OpenAI 官方 Python SDK，用于调用 Responses API。
+openai>=2.0.0,<3.0.0
+# PyYAML 用于读取本体和数据库映射配置。
+PyYAML>=6.0,<7.0
+# MySQL Connector 用于可选的 --execute 只读真实查询模式。
+mysql-connector-python>=9.0,<10.0

@@ -1,0 +1,154 @@
+# 本体版本，便于以后记录一次查询使用了哪一版业务语义。
+version: 0.1.0
+# 当前 MVP 所属业务域。
+domain: material-analysis
+# 当前 MVP 的能力边界说明。
+description: 将生产计划相关自然语言问题转换为受约束的本体查询。
+
+# entities 定义模型可以识别的业务对象，而不是数据库表。
+entities:
+  # ProductionPlan 表示生产计划。
+  ProductionPlan:
+    # 中文名称用于帮助模型理解用户表达。
+    label: 生产计划
+    # aliases 是用户可能使用的同义表达。
+    aliases: [计划, 计划单, 生产计划单]
+    # identifiers 表示用户可以怎样指定某一个生产计划。
+    identifiers: [源系统ID, 计划编号]
+  # ProcessTask 表示生产计划下的工序任务。
+  ProcessTask:
+    # 中文名称用于帮助模型理解用户表达。
+    label: 工序任务
+    # aliases 是用户可能使用的同义表达。
+    aliases: [任务, 制程任务, 工序计划任务]
+    # identifiers 表示用户可以怎样指定某一个工序任务。
+    identifiers: [源系统ID, 工序任务编号]
+  # PlanBOMItem 表示生产计划采用的历史版本 BOM 明细。
+  PlanBOMItem:
+    # 中文名称用于帮助模型理解用户表达。
+    label: 计划BOM明细
+    # aliases 是用户可能使用的同义表达。
+    aliases: [计划BOM, 标准用量, 单耗]
+  # MaterialIssue 表示实际领料事件。
+  MaterialIssue:
+    # 中文名称用于帮助模型理解用户表达。
+    label: 领料事件
+    # aliases 是用户可能使用的同义表达。
+    aliases: [领料, 投料, 发料]
+  # MaterialReturn 表示实际退料事件。
+  MaterialReturn:
+    # 中文名称用于帮助模型理解用户表达。
+    label: 退料事件
+    # aliases 是用户可能使用的同义表达。
+    aliases: [退料, 退回物料]
+  # ProductionReport 表示生产过程中的报工事件。
+  ProductionReport:
+    # 中文名称用于帮助模型理解用户表达。
+    label: 报工事件
+    # aliases 是用户可能使用的同义表达。
+    aliases: [报工, 实际产出, 生产数量]
+
+# relations 定义业务对象之间允许使用的关系。
+relations:
+  # 生产计划包含工序任务。
+  HAS_PROCESS_TASK: {from: ProductionPlan, to: ProcessTask}
+  # 生产计划采用计划版本 BOM 明细。
+  HAS_PLAN_BOM_ITEM: {from: ProductionPlan, to: PlanBOMItem}
+  # 工序任务产生领料事件。
+  HAS_MATERIAL_ISSUE: {from: ProcessTask, to: MaterialIssue}
+  # 工序任务产生退料事件。
+  HAS_MATERIAL_RETURN: {from: ProcessTask, to: MaterialReturn}
+  # 工序任务产生报工事件。
+  HAS_PRODUCTION_REPORT: {from: ProcessTask, to: ProductionReport}
+
+# metrics 定义当前 MVP 支持的业务口径；模型只能引用名称，不能修改公式。
+metrics:
+  # grossIssuedQty 是实际领料数量之和。
+  grossIssuedQty: {label: 领料数量, definition: 有效领料明细数量之和}
+  # returnedQty 是实际退料数量之和。
+  returnedQty: {label: 退料数量, definition: 有效退料明细数量之和}
+  # ratedOutputQty 使用当前 PRD 的领料量口径，暂不扣除退料。
+  ratedOutputQty: {label: 额定产出, definition: 领料数量除以计划BOM标准用量}
+  # actualReportedQty 使用数据库中已经核对过的自检口径。
+  actualReportedQty: {label: 实际报工, definition: 自检合格数量加自检不合格数量}
+  # signedDifferenceRate 保留正负方向，用于区分少报和超报候选。
+  signedDifferenceRate: {label: 有符号差异率, definition: 额定产出减实际报工后再除以额定产出}
+  # severityRate 取差异率绝对值，用于判断异常程度。
+  severityRate: {label: 异常严重度, definition: 有符号差异率的绝对值}
+
+# intents 是模型允许输出的本体查询类型。
+intents:
+  # 查询某一个生产计划的基本信息。
+  GET_PRODUCTION_PLAN:
+    # 中文说明帮助模型选择正确意图。
+    description: 根据计划ID查询生产计划基本信息
+    # parameters 是该查询需要提取的参数。
+    parameters: [plan_id]
+    # root_entity 是该意图的查询起点。
+    root_entity: ProductionPlan
+    # 只查计划自身，因此不需要跨实体关系。
+    relation_path: []
+    # 当前查询不计算业务指标。
+    metrics: []
+  # 查询某一个生产计划下的工序任务。
+  LIST_PROCESS_TASKS:
+    # 中文说明帮助模型选择正确意图。
+    description: 根据计划ID查询计划下的有效工序任务
+    # parameters 是该查询需要提取的参数。
+    parameters: [plan_id, limit]
+    # 查询从生产计划开始。
+    root_entity: ProductionPlan
+    # 系统沿生产计划包含工序任务的关系向下查询。
+    relation_path: [HAS_PROCESS_TASK]
+    # 当前查询只返回任务，不计算料差指标。
+    metrics: []
+  # 分析某一个生产计划的投料差异。
+  ANALYZE_MATERIAL_GAP:
+    # 中文说明帮助模型选择正确意图。
+    description: 根据计划ID查询计划BOM、领退料和报工并计算投料差异
+    # parameters 是该查询需要提取的参数。
+    parameters: [plan_id, threshold, limit]
+    # 料差分析同样从用户指定的生产计划开始。
+    root_entity: ProductionPlan
+    # relation_path 是本体层确定的完整业务关系，不由模型自由编造。
+    relation_path:
+      - HAS_PROCESS_TASK
+      - HAS_PLAN_BOM_ITEM
+      - HAS_MATERIAL_ISSUE
+      - HAS_MATERIAL_RETURN
+      - HAS_PRODUCTION_REPORT
+    # metrics 是 SQL 映射需要计算的本体指标。
+    metrics:
+      - grossIssuedQty
+      - returnedQty
+      - ratedOutputQty
+      - actualReportedQty
+      - signedDifferenceRate
+      - severityRate
+  # 用户问题超出当前 MVP 能力时必须返回 UNSUPPORTED。
+  UNSUPPORTED:
+    # 中文说明帮助模型识别边界。
+    description: 当前本体不能支持的问题
+    # 不支持的问题不需要数据库参数。
+    parameters: []
+    # 不支持的问题没有查询起点。
+    root_entity: null
+    # 不支持的问题不能建立任何本体查询关系。
+    relation_path: []
+    # 不支持的问题不能要求系统计算指标。
+    metrics: []
+
+# rules 定义模型解析时必须遵守的边界。
+rules:
+  # 模型不能自行增加本体中不存在的意图。
+  - 只能选择 intents 中已经登记的意图
+  # 当前 MVP 只接受明确的数字计划ID，不处理模糊名称解析。
+  - plan_id 必须来自用户明确给出的数字计划ID，不能猜测
+  # 用户没有给阈值时使用 null，让 SQL 返回全部明细。
+  - 用户没有指定异常阈值时 threshold 返回 null
+  # threshold 使用 0 到 1 的小数，例如百分之五输出 0.05。
+  - 百分比阈值必须转换为 0 到 1 之间的小数
+  # limit 控制最多输出多少行，用户没有指定时使用 100。
+  - 用户没有指定返回条数时 limit 使用 100
+  # 不允许模型直接接触或生成物理查询。
+  - 不得输出 SQL、数据库表名、字段名或 JOIN 条件
