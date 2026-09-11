@@ -10,8 +10,8 @@ import yaml
 
 # PROJECT_DIR 始终指向 mvp-text-to-sql，不依赖命令从哪里启动。
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-# ONTOLOGY_DIR 指向只读使用的 ontology-v1；本次重构不会修改它。
-ONTOLOGY_DIR = PROJECT_DIR.parent / "ontology-v1"
+# ONTOLOGY_DIR 指向仓库内置的只读本体设计包，保证单独克隆即可运行。
+ONTOLOGY_DIR = PROJECT_DIR / "ontology-v1"
 # CONFIG_DIR 保存 MVP 自己的 Query IR 契约和物理映射。
 CONFIG_DIR = PROJECT_DIR / "config"
 # EXAMPLES_DIR 保存可重复运行的离线 Query IR 示例。
@@ -61,4 +61,3 @@ def require_environment(names: list[str]) -> dict[str, str]:
     if missing:
         raise ValueError(f"缺少环境配置：{', '.join(missing)}")
     return {name: os.environ[name] for name in names}
-

@@ -1,0 +1,26 @@
+{
+  "intent": "ANALYZE_MATERIAL_GAP",
+  "mentions": [
+    {
+      "slot": "anchor.productionPlan",
+      "surface": "665",
+      "expectedType": "ProductionPlan",
+      "resolutionStatus": "UNRESOLVED"
+    }
+  ],
+  "filters": [],
+  "timeRange": null,
+  "requestedMetrics": [
+    "ratedOutputQty",
+    "actualReportedQty",
+    "signedDifferenceQty",
+    "signedDifferenceRate",
+    "severityRate"
+  ],
+  "threshold": null,
+  "diagnosisRequested": true,
+  "responseMode": "DETAIL",
+  "confidence": 0.99,
+  "ambiguities": []
+}
+

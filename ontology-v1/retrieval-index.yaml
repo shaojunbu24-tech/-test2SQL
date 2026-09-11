@@ -1,0 +1,133 @@
+index_id: material-analysis-ontology-index
+version: 1.0.0-draft
+generated_from:
+  - scope-model.yaml
+  - data-model.yaml
+  - behavior-model.yaml
+
+normalization:
+  lowercase_ascii: true
+  trim_whitespace: true
+  normalize_fullwidth_characters: true
+  preserve_business_codes: true
+
+patterns:
+  - id: production-plan-source-id
+    regex: "(?:生产计划|计划)(?:ID|id|编号)?[：: ]*([0-9]+)"
+    emits:
+      kind: entity_mention
+      expected_type: ProductionPlan
+      identifier_kind: source_id
+
+  - id: process-task-source-id
+    regex: "(?:工序任务|任务)(?:ID|id|编号)?[：: ]*([0-9]+)"
+    emits:
+      kind: entity_mention
+      expected_type: ProcessTask
+      identifier_kind: source_id
+
+  - id: relative-time
+    regex: "(?:最近|近)([0-9一二三四五六七八九十]+)(天|周|月)"
+    emits:
+      kind: time_expression
+
+intent_cards:
+  ANALYZE_MATERIAL_GAP:
+    label: 投料差异分析
+    triggers: [投料差异, 料差, 投料是否异常, 额定产出, 实际报工, 为什么差这么多, 原因分析]
+    negative_triggers: [库存余额, 采购价格]
+    anchor_types: [ProductionPlan, ProcessTask]
+    default_metrics: [ratedOutputQty, actualReportedQty, signedDifferenceQty, signedDifferenceRate, severityRate]
+    plan_recipe: analyze-material-gap-v1
+
+  LIST_MATERIAL_GAP_ANOMALIES:
+    label: 投料差异异常列表
+    triggers: [哪些计划异常, 异常计划, 料差排名, 差异超过, 超过百分之, 最大的料差]
+    negative_triggers: [单个计划详情]
+    anchor_types: [ProductionPlan, ProcessTask, Product, Department]
+    default_metrics: [ratedOutputQty, actualReportedQty, signedDifferenceRate, severityRate]
+    plan_recipe: list-material-gap-anomalies-v1
+
+feature_cards:
+  diagnosis_requested:
+    triggers: [原因, 为什么, 诊断, 根因, 怎么造成, 是否超报, 是否少转, 入库延迟]
+    expands_rule_sets: [materialGapDiagnosis]
+    expands_relations: [HAS_QUALITY_INSPECTION, HAS_INVENTORY_RECEIPT]
+    expands_entity_types: [QualityInspection, InventoryReceipt]
+
+  ranked_result_requested:
+    triggers: [排名, 最大, 最严重, 前几, top]
+
+entity_cards:
+  ProductionPlan:
+    labels: [生产计划, 计划, 计划单]
+    identifier_hints: [计划ID, 计划编号]
+  ProcessTask:
+    labels: [工序任务, 制程任务, 任务]
+    identifier_hints: [任务ID, 工序任务编号]
+  Product:
+    labels: [产品, 物料, 成品, 半成品, 原材料]
+    identifier_hints: [产品编码, 物料编码]
+  Department:
+    labels: [部门, 车间, 生产车间]
+    identifier_hints: [部门ID, 车间名称]
+  MaterialIssue:
+    labels: [领料, 投料, 发料, 领用]
+  MaterialReturn:
+    labels: [退料, 退回]
+  ProductionReport:
+    labels: [报工, 生产数量, 自检合格, 自检不合格]
+  QualityInspection:
+    labels: [质检, 检验, 合格数, 不良数, 报废]
+  InventoryReceipt:
+    labels: [入库, 收货, 库存流水]
+  PlanBOMItem:
+    labels: [计划BOM, BOM用量, 标准用量, 单耗]
+
+metric_cards:
+  grossIssuedQty:
+    labels: [领料量, 投料量]
+  returnedQty:
+    labels: [退料量]
+  ratedOutputQty:
+    labels: [额定产出, 理论产出, 可生产数量]
+  actualReportedQty:
+    labels: [实际报工, 报工数量, 实际产出]
+  signedDifferenceQty:
+    labels: [差异量, 料差数量]
+  signedDifferenceRate:
+    labels: [差异率, 料差率, 有符号差异率]
+  severityRate:
+    labels: [异常严重度, 绝对差异率]
+
+expansion_policy:
+  intent_to_recipe: true
+  include_recipe_entities_and_relations: true
+  include_metric_dependencies_recursively: true
+  include_relation_endpoint_types: true
+  diagnosis_branch_only_when_requested: true
+  include_physical_mapping: false
+  maximum_relation_hops: 3
+
+ranking:
+  exact_business_term_weight: 1.0
+  identifier_pattern_weight: 1.0
+  synonym_weight: 0.9
+  lexical_weight: 0.7
+  vector_similarity_weight: 0.5
+  negative_trigger_penalty: 1.0
+
+context_budget:
+  max_intents: 2
+  max_entity_types: 12
+  max_relations: 20
+  max_metrics: 15
+  max_rule_sets: 3
+  max_examples: 2
+  target_tokens: 3000
+
+fallback:
+  no_intent_match: RETURN_UNSUPPORTED_OR_ROUTE_TO_DOMAIN_CATALOG
+  ambiguous_intent: ASK_ROUTER_MODEL_WITH_INTENT_CARDS_ONLY
+  disconnected_subgraph: FAIL_CONTEXT_BUILD
+  parser_low_confidence: EXPAND_ONCE_AND_RETRY

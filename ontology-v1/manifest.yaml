@@ -1,0 +1,28 @@
+package_id: manufacturing-material-analysis
+version: 1.0.0-draft
+status: DRAFT
+timezone: Asia/Shanghai
+default_mapping: mom-test@1.0.0
+
+models:
+  scope: scope-model.yaml
+  data: data-model.yaml
+  behavior: behavior-model.yaml
+  semantic: semantic-model.mom-test.yaml
+
+contracts:
+  semantic_request_schema: semantic-request.schema.json
+  query_ir_schema: query-ir.schema.json
+
+retrieval:
+  index: retrieval-index.yaml
+  strategy: RULE_PLUS_GRAPH_CLOSURE
+  semantic_vector_retrieval: optional
+
+runtime_policy:
+  model_may_generate_sql: false
+  model_may_guess_entity_id: false
+  model_may_define_metric_formula: false
+  model_may_select_unregistered_relation: false
+  unresolved_entity_policy: STOP_AND_RESOLVE
+  default_write_policy: READ_ONLY

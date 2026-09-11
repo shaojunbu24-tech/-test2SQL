@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:schema:material-analysis:query-ir:1.0",
+  "title": "OntologyQueryPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["queryId", "ontologyVersion", "mappingVersion", "intent", "groundedEntities", "steps", "writePolicy"],
+  "properties": {
+    "queryId": {"type": "string", "minLength": 1},
+    "ontologyVersion": {"type": "string"},
+    "mappingVersion": {"type": "string"},
+    "intent": {"type": "string"},
+    "groundedEntities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "ontologyClass", "entityRef", "sourceBinding", "resolution"],
+        "properties": {
+          "slot": {"type": "string"},
+          "ontologyClass": {"type": "string"},
+          "entityRef": {"type": "string"},
+          "sourceBinding": {
+            "type": "object",
+            "required": ["source", "sourceId"],
+            "properties": {
+              "source": {"type": "string"},
+              "sourceId": {},
+              "sourceCode": {"type": ["string", "null"]}
+            }
+          },
+          "resolution": {
+            "type": "object",
+            "required": ["method", "score"],
+            "properties": {
+              "method": {"enum": ["SOURCE_ID_EXACT", "CODE_EXACT", "LABEL_EXACT", "ALIAS_EXACT", "USER_CONFIRMED"]},
+              "score": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["stepId", "op"],
+        "properties": {
+          "stepId": {"type": "string"},
+          "op": {
+            "enum": ["Scan", "Filter", "Traverse", "Aggregate", "ComputeMetric", "Classify", "Rank", "Explain", "PersistCase"]
+          },
+          "input": {"type": ["string", "array"]},
+          "entityType": {"type": "string"},
+          "relation": {"type": "string"},
+          "where": {"type": "array"},
+          "groupBy": {"type": "array"},
+          "metrics": {"type": "array", "items": {"type": "string"}},
+          "ruleSet": {"type": "string"},
+          "bind": {"type": "string"},
+          "include": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "writePolicy": {"enum": ["READ_ONLY", "ALLOW_CASE_PERSIST"]},
+    "limits": {
+      "type": "object",
+      "properties": {
+        "pageSize": {"type": "integer", "minimum": 1, "maximum": 200},
+        "timeoutMs": {"type": "integer", "minimum": 100, "maximum": 120000}
+      }
+    }
+  }
+}
+

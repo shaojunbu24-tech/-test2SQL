@@ -1,0 +1,38 @@
+{
+  "task": "Parse the user request into SemanticRequest. Return JSON only.",
+  "runtime": {
+    "currentTime": "2026-09-11T10:00:00+08:00",
+    "timezone": "Asia/Shanghai",
+    "userDataScope": ["mom-test"]
+  },
+  "userText": "分析生产计划ID 665的投料差异，并说明可能原因",
+  "ontologyContext": {
+    "supportedIntents": [
+      {
+        "id": "ANALYZE_MATERIAL_GAP",
+        "description": "计算指定计划或工序任务的投料差异并给出原因候选"
+      }
+    ],
+    "entityTypes": [
+      {"id": "ProductionPlan", "labels": ["生产计划", "计划"], "identifiers": ["源ID", "计划编号"]},
+      {"id": "ProcessTask", "labels": ["工序任务", "任务"], "identifiers": ["源ID", "任务编号"]}
+    ],
+    "availableMetrics": [
+      "ratedOutputQty",
+      "actualReportedQty",
+      "signedDifferenceQty",
+      "signedDifferenceRate",
+      "severityRate"
+    ],
+    "allowedFilterFields": ["ProductionPlan.id", "ProductionPlan.planNo", "ProcessTask.id", "timeRange"],
+    "responseModes": ["SUMMARY", "DETAIL", "RANKED_LIST"]
+  },
+  "constraints": [
+    "Never invent or resolve an entity ID.",
+    "Every user-mentioned business object must remain UNRESOLVED.",
+    "Use only identifiers present in ontologyContext.",
+    "Do not output SQL, table names, API paths, formulas or unregistered metrics."
+  ],
+  "outputSchemaId": "urn:schema:material-analysis:semantic-request:1.0"
+}
+

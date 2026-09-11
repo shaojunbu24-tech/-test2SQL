@@ -1,0 +1,126 @@
+model: BehaviorModel
+version: 1.0.0-draft
+
+metrics:
+  grossIssuedQty:
+    label: 领料数量
+    subject: ProcessTask
+    grain: [ProcessTask, Product]
+    handler: aggregate_material_issue
+    aggregation: SUM
+    source_property: MaterialIssue.quantity
+
+  returnedQty:
+    label: 退料数量
+    subject: ProcessTask
+    grain: [ProcessTask, Product]
+    handler: aggregate_material_return
+    aggregation: SUM
+    source_property: MaterialReturn.quantity
+
+  ratedOutputQty:
+    label: 额定产出
+    subject: ProcessTask
+    grain: [ProcessTask, Product]
+    handler: calculate_rated_output_v1
+    dependencies: [grossIssuedQty, PlanBOMItem.standardUsage]
+    formula_ast:
+      op: DIVIDE
+      args:
+        - {ref: grossIssuedQty}
+        - {ref: PlanBOMItem.standardUsage}
+    zero_division: NOT_EVALUABLE
+    bom_matching_policy: DIRECT_CHILD_OF_TASK_OUTPUT_NODE
+    note: V1 按当前 PRD 使用领料量；是否扣退料需业务确认后另发指标版本。
+
+  actualReportedQty:
+    label: 实际报工数量
+    subject: ProcessTask
+    grain: [ProcessTask]
+    handler: calculate_actual_reported_v1
+    dependencies: [ProductionReport.selfQualifiedQty, ProductionReport.selfNonconformingQty]
+    formula_ast:
+      op: ADD
+      args:
+        - {ref: ProductionReport.selfQualifiedQty}
+        - {ref: ProductionReport.selfNonconformingQty}
+
+  signedDifferenceQty:
+    label: 有符号投料差异量
+    subject: ProcessTask
+    dependencies: [ratedOutputQty, actualReportedQty]
+    formula_ast:
+      op: SUBTRACT
+      args: [{ref: ratedOutputQty}, {ref: actualReportedQty}]
+
+  signedDifferenceRate:
+    label: 有符号投料差异率
+    subject: ProcessTask
+    dependencies: [signedDifferenceQty, ratedOutputQty]
+    formula_ast:
+      op: DIVIDE
+      args: [{ref: signedDifferenceQty}, {ref: ratedOutputQty}]
+    zero_division: NOT_EVALUABLE
+
+  severityRate:
+    label: 异常严重度
+    subject: ProcessTask
+    dependencies: [signedDifferenceRate]
+    formula_ast:
+      op: ABS
+      args: [{ref: signedDifferenceRate}]
+
+classifications:
+  materialGapSeverity:
+    label: 料差严重程度
+    input_metric: severityRate
+    handler: threshold_classifier
+    levels:
+      - {code: NORMAL, min_inclusive: 0.0, max_inclusive: 0.03}
+      - {code: WARNING, min_exclusive: 0.03, max_exclusive: 0.05}
+      - {code: ABNORMAL, min_inclusive: 0.05}
+
+diagnosis_rule_sets:
+  materialGapDiagnosis:
+    label: 料差原因候选诊断
+    handler: material_gap_rule_engine_v1
+    outputs_are_candidates: true
+    rules:
+      - {id: OVER_REPORTING, priority: 100, status: DRAFT}
+      - {id: UNDER_TRANSFER, priority: 90, status: DRAFT}
+      - {id: QUALITY_SCRAP, priority: 80, status: DRAFT}
+      - {id: RECEIPT_DELAY, priority: 70, status: DRAFT}
+    scoring: evidence_completeness_times_rule_reliability
+
+plan_recipes:
+  analyze-material-gap-v1:
+    anchor_any_of: [ProductionPlan, ProcessTask]
+    anchor_normalization:
+      ProductionPlan:
+        plans: filteredAnchors
+        tasks: {op: Traverse, input: filteredAnchors, relation: HAS_PROCESS_TASK}
+      ProcessTask:
+        tasks: filteredAnchors
+        plans: {op: Traverse, input: filteredAnchors, relation: TASK_BELONGS_TO_PLAN}
+    logical_steps:
+      - {op: Scan, entity_type: "$anchor.type", bind: anchors}
+      - {op: Filter, input: anchors, from_semantic_request: true, bind: filteredAnchors}
+      - {op: NormalizeAnchor, recipe: anchor_normalization}
+      - {op: Traverse, input: plans, relation: HAS_PLAN_BOM_ITEM, bind: planBomItems}
+      - {op: Traverse, input: tasks, relation: HAS_MATERIAL_ISSUE, bind: issues}
+      - {op: Traverse, input: tasks, relation: HAS_MATERIAL_RETURN, bind: returns}
+      - {op: Traverse, input: tasks, relation: HAS_PRODUCTION_REPORT, bind: reports}
+      - {op: ComputeMetric, input: [tasks, planBomItems, issues, returns, reports], metrics: [grossIssuedQty, returnedQty, ratedOutputQty, actualReportedQty, signedDifferenceQty, signedDifferenceRate, severityRate], bind: metricResults}
+      - {op: Classify, input: metricResults, rule_set: materialGapSeverity, bind: classifiedResults}
+      - {op: Traverse, input: reports, relation: HAS_QUALITY_INSPECTION, when_request: diagnosisRequested, bind: inspections}
+      - {op: Traverse, input: reports, relation: HAS_INVENTORY_RECEIPT, when_request: diagnosisRequested, bind: receipts}
+      - {op: Classify, input: [classifiedResults, returns, reports, inspections, receipts], rule_set: materialGapDiagnosis, when_request: diagnosisRequested, bind: diagnosisResults}
+      - {op: Explain, input: classifiedResults, when_request: "diagnosisRequested == false", include: [evidence, lineage, metric_definition, data_quality], bind: response}
+      - {op: Explain, input: diagnosisResults, when_request: diagnosisRequested, include: [evidence, lineage, metric_definition, data_quality], bind: response}
+
+  list-material-gap-anomalies-v1:
+    extends: analyze-material-gap-v1
+    append_steps:
+      - {op: Filter, input: classifiedResults, predicate: "severityRate >= $request.threshold", bind: anomalies}
+      - {op: Rank, input: anomalies, by: severityRate, direction: DESC, bind: rankedAnomalies}
+      - {op: Explain, input: rankedAnomalies, include: [evidence, lineage, metric_definition, data_quality], bind: response}

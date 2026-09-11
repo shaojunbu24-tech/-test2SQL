@@ -1,0 +1,113 @@
+{
+  "queryId": "q-example-001",
+  "ontologyVersion": "manufacturing-material-analysis@1.0.0-draft",
+  "mappingVersion": "mom-test@1.0.0",
+  "intent": "ANALYZE_MATERIAL_GAP",
+  "groundedEntities": [
+    {
+      "slot": "anchor.productionPlan",
+      "ontologyClass": "ProductionPlan",
+      "entityRef": "mom:production-plan:665",
+      "sourceBinding": {
+        "source": "mom-test",
+        "sourceId": 665,
+        "sourceCode": null
+      },
+      "resolution": {
+        "method": "SOURCE_ID_EXACT",
+        "score": 1.0
+      }
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "s1",
+      "op": "Scan",
+      "entityType": "ProductionPlan",
+      "where": [{"property": "id", "operator": "EQ", "valueRef": "mom:production-plan:665"}],
+      "bind": "plans"
+    },
+    {
+      "stepId": "s2",
+      "op": "Traverse",
+      "input": "plans",
+      "relation": "HAS_PROCESS_TASK",
+      "bind": "tasks"
+    },
+    {
+      "stepId": "s3",
+      "op": "Traverse",
+      "input": "plans",
+      "relation": "HAS_PLAN_BOM_ITEM",
+      "bind": "planBomItems"
+    },
+    {
+      "stepId": "s4",
+      "op": "Traverse",
+      "input": "tasks",
+      "relation": "HAS_MATERIAL_ISSUE",
+      "bind": "issues"
+    },
+    {
+      "stepId": "s5",
+      "op": "Traverse",
+      "input": "tasks",
+      "relation": "HAS_MATERIAL_RETURN",
+      "bind": "returns"
+    },
+    {
+      "stepId": "s6",
+      "op": "Traverse",
+      "input": "tasks",
+      "relation": "HAS_PRODUCTION_REPORT",
+      "bind": "reports"
+    },
+    {
+      "stepId": "s7",
+      "op": "ComputeMetric",
+      "input": ["tasks", "planBomItems", "issues", "returns", "reports"],
+      "metrics": ["grossIssuedQty", "returnedQty", "ratedOutputQty", "actualReportedQty", "signedDifferenceQty", "signedDifferenceRate", "severityRate"],
+      "bind": "metricResults"
+    },
+    {
+      "stepId": "s8",
+      "op": "Classify",
+      "input": "metricResults",
+      "ruleSet": "materialGapSeverity",
+      "bind": "classifiedResults"
+    },
+    {
+      "stepId": "s9",
+      "op": "Traverse",
+      "input": "reports",
+      "relation": "HAS_QUALITY_INSPECTION",
+      "bind": "inspections"
+    },
+    {
+      "stepId": "s10",
+      "op": "Traverse",
+      "input": "reports",
+      "relation": "HAS_INVENTORY_RECEIPT",
+      "bind": "receipts"
+    },
+    {
+      "stepId": "s11",
+      "op": "Classify",
+      "input": ["classifiedResults", "returns", "reports", "inspections", "receipts"],
+      "ruleSet": "materialGapDiagnosis",
+      "bind": "diagnosisResults"
+    },
+    {
+      "stepId": "s12",
+      "op": "Explain",
+      "input": "diagnosisResults",
+      "include": ["evidence", "lineage", "metric_definition", "data_quality"],
+      "bind": "response"
+    }
+  ],
+  "writePolicy": "READ_ONLY",
+  "limits": {
+    "pageSize": 100,
+    "timeoutMs": 30000
+  }
+}

@@ -1,0 +1,163 @@
+model: DataModel
+version: 1.0.0-draft
+
+entity_types:
+  ProductionPlan:
+    label: 生产计划
+    kind: master_transaction
+    canonical_id_pattern: "mom:production-plan:{sourceId}"
+    properties:
+      planNo: {type: string}
+      name: {type: string}
+      plannedQty: {type: decimal}
+      statusCode: {type: string}
+      planStartTime: {type: datetime}
+      planEndTime: {type: datetime}
+
+  ProcessTask:
+    label: 工序任务
+    kind: transaction
+    canonical_id_pattern: "mom:process-task:{sourceId}"
+    properties:
+      taskNo: {type: string}
+      plannedQty: {type: decimal}
+      statusCode: {type: string}
+      startTime: {type: datetime}
+      finishTime: {type: datetime}
+
+  Product:
+    label: 产品或物料
+    kind: master_data
+    canonical_id_pattern: "mom:product:{sourceId}"
+    properties:
+      code: {type: string}
+      name: {type: string}
+      specification: {type: string, nullable: true}
+
+  Department:
+    label: 组织部门或车间候选
+    kind: master_data
+    canonical_id_pattern: "mom:department:{sourceId}"
+    properties:
+      name: {type: string}
+
+  PlanBOMItem:
+    label: 计划版本BOM明细
+    kind: fact
+    canonical_id_pattern: "mom:plan-bom-item:{sourceId}"
+    properties:
+      standardUsage: {type: decimal}
+      wastageRate: {type: decimal, nullable: true}
+      layer: {type: integer}
+
+  MaterialIssue:
+    label: 领料事件
+    kind: event
+    canonical_id_pattern: "mom:material-issue:{sourceId}"
+    properties:
+      quantity: {type: decimal}
+      eventTime: {type: datetime, nullable: true}
+      batch: {type: string, nullable: true}
+
+  MaterialReturn:
+    label: 退料事件
+    kind: event
+    canonical_id_pattern: "mom:material-return:{sourceId}"
+    properties:
+      quantity: {type: decimal}
+      eventTime: {type: datetime, nullable: true}
+
+  ProductionReport:
+    label: 报工事件
+    kind: event
+    canonical_id_pattern: "mom:production-report:{sourceId}"
+    properties:
+      selfQualifiedQty: {type: decimal}
+      selfNonconformingQty: {type: decimal}
+      reportTime: {type: datetime}
+
+  QualityInspection:
+    label: 质检事件
+    kind: event
+    canonical_id_pattern: "mom:quality-inspection:{sourceId}"
+    properties:
+      goodQty: {type: decimal}
+      badQty: {type: decimal}
+      statusCode: {type: string}
+      checkTime: {type: datetime, nullable: true}
+
+  InventoryReceipt:
+    label: 入库事件
+    kind: event
+    canonical_id_pattern: "mom:inventory-receipt:{sourceId}"
+    properties:
+      quantity: {type: decimal}
+      eventTime: {type: datetime}
+      ledgerTypeCode: {type: string}
+
+relations:
+  PLAN_OUTPUT_PRODUCT:
+    from: ProductionPlan
+    to: Product
+    cardinality: many_to_one
+
+  HAS_PLAN_BOM_ITEM:
+    from: ProductionPlan
+    to: PlanBOMItem
+    cardinality: one_to_many
+
+  BOM_ITEM_MATERIAL:
+    from: PlanBOMItem
+    to: Product
+    cardinality: many_to_one
+
+  HAS_PROCESS_TASK:
+    from: ProductionPlan
+    to: ProcessTask
+    cardinality: one_to_many
+
+  TASK_BELONGS_TO_PLAN:
+    from: ProcessTask
+    to: ProductionPlan
+    cardinality: many_to_one
+    inverse_of: HAS_PROCESS_TASK
+
+  TASK_OUTPUT_PRODUCT:
+    from: ProcessTask
+    to: Product
+    cardinality: many_to_one
+
+  HAS_MATERIAL_ISSUE:
+    from: ProcessTask
+    to: MaterialIssue
+    cardinality: one_to_many
+
+  ISSUE_MATERIAL:
+    from: MaterialIssue
+    to: Product
+    cardinality: many_to_one
+
+  HAS_MATERIAL_RETURN:
+    from: ProcessTask
+    to: MaterialReturn
+    cardinality: one_to_many
+
+  RETURN_MATERIAL:
+    from: MaterialReturn
+    to: Product
+    cardinality: many_to_one
+
+  HAS_PRODUCTION_REPORT:
+    from: ProcessTask
+    to: ProductionReport
+    cardinality: one_to_many
+
+  HAS_QUALITY_INSPECTION:
+    from: ProductionReport
+    to: QualityInspection
+    cardinality: zero_or_one
+
+  HAS_INVENTORY_RECEIPT:
+    from: ProductionReport
+    to: InventoryReceipt
+    cardinality: zero_to_many

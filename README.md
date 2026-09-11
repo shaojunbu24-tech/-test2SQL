@@ -27,12 +27,14 @@ MVP 从生产计划 ID 开始，已经支持：
 - 命令行和 Streamlit 可视化界面；
 - `mom-test` 只读真实查询。
 
-`ontology-v1` 当前只作为只读本体来源，本次重构没有修改其中任何文件。
+`ontology-v1` 作为只读本体设计包内置在仓库中，包含 Scope、Data、Behavior、Semantic 四层模型。
+运行时模型只接收本体层的实体、关系、指标和算子，不接收数据库密码或物理 SQL。
 
 ## 2. 目录结构
 
 ```text
 mvp-text-to-sql/
+├── ontology-v1/                   # 完整本体设计包和语义映射
 ├── config/
 │   ├── mapping.yaml              # 可组合实体、关系、指标物理映射
 │   └── query-ir.schema.json      # 模型 Candidate Query IR 契约

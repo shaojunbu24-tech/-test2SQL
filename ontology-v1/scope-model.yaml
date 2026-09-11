@@ -1,0 +1,63 @@
+model: ScopeModel
+version: 1.0.0-draft
+
+domain:
+  id: material-analysis
+  label: 料查分析
+  description: 以生产计划和工序任务为主轴，分析领退料、报工、质检及入库事实。
+
+supported_intents:
+  - id: ANALYZE_MATERIAL_GAP
+    label: 投料差异分析
+    required_anchor:
+      any_of: [ProductionPlan, ProcessTask]
+    optional_scopes: [Product, Department, Team, timeRange, planStatus]
+    allowed_metrics:
+      - grossIssuedQty
+      - returnedQty
+      - ratedOutputQty
+      - actualReportedQty
+      - signedDifferenceQty
+      - signedDifferenceRate
+      - severityRate
+    allowed_rule_sets: [materialGapSeverity, materialGapDiagnosis]
+    plan_recipe: analyze-material-gap-v1
+
+  - id: LIST_MATERIAL_GAP_ANOMALIES
+    label: 投料差异异常列表
+    required_scope:
+      any_of: [ProductionPlan, Product, Department, timeRange]
+    optional_scopes: [ProcessTask, Team, planStatus]
+    allowed_metrics: [ratedOutputQty, actualReportedQty, signedDifferenceRate, severityRate]
+    allowed_rule_sets: [materialGapSeverity]
+    plan_recipe: list-material-gap-anomalies-v1
+
+allowed_operators:
+  - ResolveEntity
+  - Scan
+  - Filter
+  - Traverse
+  - Aggregate
+  - ComputeMetric
+  - Classify
+  - Rank
+  - Explain
+
+write_operators:
+  - PersistCase
+
+guardrails:
+  require_time_range_for_multi_plan_scan: true
+  maximum_time_range_days: 366
+  maximum_page_size: 200
+  maximum_traverse_depth: 4
+  allow_unbounded_scan: false
+  question_mode_write_policy: READ_ONLY
+  persist_case_requires_explicit_policy: true
+
+known_limitations:
+  - WorkOrder 当前无有效实例，不作为 V1 查询主轴。
+  - Department 可作为车间候选来源，但车间主数据和任务组织覆盖不足。
+  - InventoryReceipt 仅部分记录可按 report_id 或 task_id 可靠关联。
+  - 状态枚举、质检 flag=4 和入库 ledger_type_id 的中文语义待确认。
+

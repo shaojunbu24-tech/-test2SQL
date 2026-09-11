@@ -1,0 +1,191 @@
+model: SemanticModel
+mapping_id: mom-test
+version: 1.0.0
+source_type: MYSQL
+database: mom-test
+
+entity_mappings:
+  ProductionPlan:
+    table: produce_plan
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      planNo: code
+      name: name
+      plannedQty: plan_produce_num
+      statusCode: plan_status_id
+      planStartTime: plan_start_time
+      planEndTime: plan_end_time
+
+  ProcessTask:
+    table: produce_order_make_process_task
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      taskNo: make_process_task_code
+      plannedQty: plan_produce_num
+      statusCode: status_id
+      startTime: start_time
+      finishTime: finish_time
+
+  Product:
+    table: design_product
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      code: code
+      name: name
+      specification: spec
+
+  Department:
+    table: sys_department
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      name: name
+
+  PlanBOMItem:
+    table: produce_plan_bom_detail
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      standardUsage: use_num
+      wastageRate: wastage_rate
+      layer: layer
+
+  MaterialIssue:
+    header_table: produce_pick
+    detail_table: produce_pick_relation_product
+    header_primary_key: id
+    detail_primary_key: id
+    detail_join: "produce_pick.id = produce_pick_relation_product.pick_id"
+    active_predicate: "produce_pick.deleted = 0 AND produce_pick_relation_product.deleted = 0"
+    properties:
+      quantity: produce_pick_relation_product.num
+      eventTime: produce_pick.outbound_time
+      batch: produce_pick_relation_product.batch
+
+  MaterialReturn:
+    header_table: produce_return
+    detail_table: produce_return_relation_product
+    header_primary_key: id
+    detail_primary_key: id
+    detail_join: "produce_return.id = produce_return_relation_product.return_id"
+    active_predicate: "produce_return.deleted = 0 AND produce_return_relation_product.deleted = 0"
+    properties:
+      quantity: produce_return_relation_product.num
+      eventTime: produce_return.inbound_time
+
+  ProductionReport:
+    table: produce_report
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      selfQualifiedQty: produce_num
+      selfNonconformingQty: self_check_ng_num
+      reportTime: report_time
+    forbidden_source_fields_for_metrics: [report_num, ok_num, ng_num]
+
+  QualityInspection:
+    table: patrol_check
+    primary_key: id
+    active_predicate: "deleted = 0"
+    properties:
+      goodQty: good_num
+      badQty: bad_num
+      statusCode: status
+      checkTime: check_time
+
+  InventoryReceipt:
+    header_table: inventory_ledger
+    detail_table: inventory_ledger_relation_product
+    header_primary_key: id
+    detail_primary_key: id
+    detail_join: "inventory_ledger.id = inventory_ledger_relation_product.ledger_id"
+    active_predicate: "inventory_ledger.deleted = 0 AND inventory_ledger_relation_product.deleted = 0 AND inventory_ledger.type_id = 1"
+    properties:
+      quantity: inventory_ledger_relation_product.num
+      eventTime: inventory_ledger.time
+      ledgerTypeCode: inventory_ledger.ledger_type_id
+
+relation_mappings:
+  PLAN_OUTPUT_PRODUCT:
+    join: "produce_plan.product_id = design_product.id"
+    confidence: VERIFIED
+
+  HAS_PLAN_BOM_ITEM:
+    join: "produce_plan.id = produce_plan_bom_detail.plan_id"
+    confidence: VERIFIED
+
+  BOM_ITEM_MATERIAL:
+    join: "produce_plan_bom_detail.product_id = design_product.id"
+    confidence: VERIFIED
+
+  HAS_PROCESS_TASK:
+    join: "produce_plan.id = produce_order_make_process_task.produce_plan_id"
+    confidence: VERIFIED
+
+  TASK_BELONGS_TO_PLAN:
+    join: "produce_order_make_process_task.produce_plan_id = produce_plan.id"
+    confidence: VERIFIED
+
+  TASK_OUTPUT_PRODUCT:
+    join: "produce_order_make_process_task.product_id = design_product.id"
+    confidence: VERIFIED
+
+  HAS_MATERIAL_ISSUE:
+    join: "produce_order_make_process_task.id = produce_pick.make_process_task_id"
+    detail_join: "produce_pick.id = produce_pick_relation_product.pick_id"
+    confidence: VERIFIED_WITH_ORPHANS
+
+  ISSUE_MATERIAL:
+    join: "produce_pick_relation_product.product_id = design_product.id"
+    confidence: VERIFIED
+
+  HAS_MATERIAL_RETURN:
+    join: "produce_order_make_process_task.id = produce_return.make_process_task_id"
+    detail_join: "produce_return.id = produce_return_relation_product.return_id"
+    confidence: VERIFIED_WITH_ORPHANS
+
+  RETURN_MATERIAL:
+    join: "produce_return_relation_product.product_id = design_product.id"
+    confidence: VERIFIED
+
+  HAS_PRODUCTION_REPORT:
+    join: "produce_order_make_process_task.id = produce_report.process_task_id"
+    confidence: VERIFIED
+
+  HAS_QUALITY_INSPECTION:
+    strategies:
+      - {priority: 1, join: "produce_report.patrol_check_id = patrol_check.id", confidence: EXACT}
+      - {priority: 2, join: "produce_report.process_task_id = patrol_check.make_process_task_id", confidence: FALLBACK}
+    confidence: PARTIAL
+
+  HAS_INVENTORY_RECEIPT:
+    strategies:
+      - {priority: 1, join: "produce_report.id = inventory_ledger.report_id", confidence: EXACT}
+      - {priority: 2, join: "produce_report.process_task_id = inventory_ledger.make_process_task_id", confidence: FALLBACK}
+    confidence: PARTIAL
+
+identity_resolution:
+  ProductionPlan:
+    exact_fields: [id, code]
+    label_fields: [name]
+  ProcessTask:
+    exact_fields: [id, make_process_task_code]
+  Product:
+    exact_fields: [id, code]
+    label_fields: [name]
+  Department:
+    exact_fields: [id]
+    label_fields: [name]
+    alias_registry_required: true
+
+data_quality_gates:
+  - {id: NO_FOREIGN_KEYS, severity: WARNING}
+  - {id: TASK_REFERENCES_DELETED_PLAN, severity: ERROR}
+  - {id: ISSUE_WITHOUT_TASK, severity: WARNING}
+  - {id: RETURN_WITHOUT_TASK, severity: WARNING}
+  - {id: REPORT_MISSING_INSPECTION, severity: WARNING}
+  - {id: UNKNOWN_STATUS_ENUM, severity: WARNING}
+  - {id: ZERO_STANDARD_USAGE, severity: ERROR}
