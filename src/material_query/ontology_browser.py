@@ -142,9 +142,15 @@ def _relation_detail(registry, relation_id):
     else:
         st.warning("当前仅有逻辑/设计定义，尚不能由 MVP 编译执行。")
     st.write("当前执行映射")
-    st.json(catalog["mapping"])
+    if catalog["mapping"] is None:
+        st.caption("暂无当前执行映射。")
+    else:
+        st.json(catalog["mapping"])
     st.write("本体设计映射")
-    st.json(catalog["designMapping"])
+    if catalog["designMapping"] is None:
+        st.caption("暂无本体设计映射。")
+    else:
+        st.json(catalog["designMapping"])
     left, right = st.columns(2)
     with left:
         if st.button(f"查看起点：{registry.entity_types[relation['from']]['label']}", key="relation_from"):

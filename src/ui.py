@@ -14,6 +14,15 @@ from material_query.conversation import MAX_CONTEXT_TURNS
 st.set_page_config(page_title="料查分析 Query IR MVP", page_icon="🔎", layout="wide")
 
 
+def stable_json(value, empty_message="暂无数据"):
+    """以稳定文本渲染动态追踪，避免 JSON 树在频繁重排时触发前端 DOM 异常。"""
+
+    if value is None or value == {} or value == []:
+        st.caption(empty_message)
+        return
+    st.code(json.dumps(value, ensure_ascii=False, indent=2, default=str), language="json")
+
+
 def ontology_dot(entities: list[dict], relations: list[dict]) -> str:
     """把实体和关系转换成 Graphviz DOT，并保留没有边的实体节点。"""
 
@@ -204,11 +213,11 @@ with resolution_tab:
     if trace:
         if trace.get("context"):
             st.subheader("最近五轮上下文 → 本轮独立问题")
-            st.json(trace["context"])
+            stable_json(trace["context"])
         st.subheader("用户表达 → 本体属性 → 数据库记录")
-        st.json(trace.get("request", {"说明": "离线Query IR未经过自然语言解析。"}))
+        stable_json(trace.get("request", {"说明": "离线Query IR未经过自然语言解析。"}))
         resolution = trace.get("resolution", {})
-        st.json(resolution)
+        stable_json(resolution, "本轮没有执行实体定位。")
         if resolution.get("status") == "RESOLVED" and trace.get("status") == "NEEDS_INPUT":
             st.success(f"计划 ID {resolution['sourceId']} 已通过真实数据库确认；下一轮可以直接说“查他的BOM”等明确目标。")
         if resolution.get("status") == "AMBIGUOUS":
@@ -220,10 +229,10 @@ with resolution_tab:
                 st.button(f"选择 ID {plan['id']} · {plan['code']}", key=f"choose_{plan['id']}", on_click=choose_plan)
         if trace.get("task"):
             st.subheader("固定分析任务及参数")
-            st.json(trace["task"])
+            stable_json(trace["task"])
         if trace.get("planning_repair"):
             st.write("动态计划修复记录")
-            st.json(trace["planning_repair"])
+            stable_json(trace["planning_repair"])
     else:
         st.info("运行查询后可查看定位属性、候选记录、规范ID和任务参数。")
 
