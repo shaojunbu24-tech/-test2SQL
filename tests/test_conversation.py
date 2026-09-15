@@ -10,6 +10,7 @@ sys.path.insert(0, str(PROJECT / "src"))
 
 from material_query.conversation import rewrite_question, summarize_recent_turns
 from material_query.pipeline import MaterialQueryPipeline
+from material_query.config import load_json
 
 
 def parsed_request(threshold=None):
@@ -30,6 +31,25 @@ def turn(question="分析生产计划ID 665的料差", plan_id=665, status="SUCC
 
 
 class ConversationTests(unittest.TestCase):
+    def test_clarification_can_keep_a_verified_entity_anchor(self):
+        """已定位但未规划的实体不是查询成功，也不应被当作失败实体丢弃。"""
+
+        first = {"question": "分析生产计划ID 665", "trace": {
+            "status": "NEEDS_INPUT", "request": {"route": "clarify"},
+            "resolution": {"status": "RESOLVED", "sourceId": 665},
+            "execution": {"status": "NOT_EXECUTED"}}}
+        summary = summarize_recent_turns([first])[0]
+        self.assertEqual("ENTITY_VERIFIED", summary["status"])
+        self.assertEqual(665, summary["verified_plan_id"])
+        self.assertEqual("", summary["goal"])
+        followup = rewrite_question("查一下他的BOM吧", [first])
+        self.assertEqual("DRILL_DOWN", followup["mode"])
+        self.assertEqual(665, followup["inherited_plan_id"])
+        self.assertIn("生产计划ID 665", followup["effective_question"])
+        first["trace"]["resolution"]["status"] = "UNVERIFIED"
+        self.assertEqual("NOT_GROUNDED", summarize_recent_turns([first])[0]["status"])
+        self.assertIsNone(rewrite_question("查一下他的BOM吧", [first])["inherited_plan_id"])
+
     def test_only_last_five_compact_summaries(self):
         history = [turn(f"第{i}轮计划料差") for i in range(7)]
         history[-1]["trace"]["compilation"] = {"sql": "SECRET_SQL"}
@@ -113,6 +133,69 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0.1, second["compilation"]["parameters"]["threshold"])
         self.assertTrue(second["compilation"]["sql"].startswith("WITH"))
         self.assertIn("Scan", second["ontology"]["query_hits"]["operators"])
+
+    @patch("material_query.pipeline.QueryIRPlanner")
+    @patch("material_query.pipeline.RequestRouter")
+    def test_exact_reported_clarify_then_bom_runs_to_sql(self, router, planner):
+        """原样测试用户两句话：第一轮仅定位，第二轮真正生成 BOM SQL 并执行。"""
+
+        clarify = {"route": "clarify", "selector": None, "threshold": None,
+                   "comparison": "GT", "limit": 100,
+                   "clarification": "请明确要分析的内容。"}
+        dynamic = {"route": "dynamic_query", "selector": None, "threshold": None,
+                   "comparison": "GT", "limit": 100, "clarification": ""}
+        router.return_value.parse.side_effect = [clarify, dynamic]
+        planner.return_value.plan.return_value = load_json(PROJECT / "examples/query-ir-plan-bom.json")
+        pipeline = MaterialQueryPipeline()
+        plan = {"id": 665, "code": "P-665", "name": "测试计划"}
+        bom_result = {"status": "SUCCESS", "database": "mom-test", "row_count": 5,
+                      "rows": [{"bom_layer": 1}], "grounded_entities": []}
+        with patch.object(pipeline.executor, "execute", side_effect=[
+            {"rows": [plan]}, {"rows": [plan]}, bom_result,
+        ]) as execute:
+            first = pipeline.run("分析生产计划ID 665", execute=True)
+            second = pipeline.run("查一下他的BOM吧", execute=True,
+                                  conversation_history=[{"question": "分析生产计划ID 665",
+                                                         "trace": first}])
+        self.assertEqual("NEEDS_INPUT", first["status"])
+        self.assertEqual("RESOLVED", first["resolution"]["status"])
+        self.assertNotIn("planning", first)
+        self.assertEqual("DRILL_DOWN", second["context"]["mode"])
+        self.assertEqual(665, second["request"]["selector"]["value"])
+        self.assertEqual("SUCCESS", second["execution"]["status"])
+        self.assertEqual(5, second["execution"]["row_count"])
+        self.assertIn("produce_plan_bom_detail", second["compilation"]["sql"])
+        self.assertEqual(3, execute.call_count)
+        self.assertEqual(1, planner.return_value.plan.call_count)
+
+    def test_exact_reported_dialogue_in_streamlit(self):
+        """界面确实保留第一轮实体定位，再让第二轮‘他’进入执行结果。"""
+
+        from streamlit.testing.v1 import AppTest
+        app = AppTest.from_file(str(PROJECT / "src/ui.py"), default_timeout=20).run()
+        app.text_area[0].input("分析生产计划ID 665").run()
+        clarify = {"route": "clarify", "selector": None, "threshold": None,
+                   "comparison": "GT", "limit": 100,
+                   "clarification": "请明确要分析的内容。"}
+        dynamic = {"route": "dynamic_query", "selector": None, "threshold": None,
+                   "comparison": "GT", "limit": 100, "clarification": ""}
+        plan = {"id": 665, "code": "P-665", "name": "测试计划"}
+        bom_result = {"status": "SUCCESS", "database": "mom-test", "row_count": 5,
+                      "rows": [{"bom_layer": 1}], "grounded_entities": []}
+        with patch("material_query.pipeline.RequestRouter") as router, \
+             patch("material_query.pipeline.QueryIRPlanner") as planner, \
+             patch("material_query.database.ReadOnlyMySQLExecutor.execute") as execute:
+            router.return_value.parse.side_effect = [clarify, dynamic]
+            planner.return_value.plan.return_value = load_json(PROJECT / "examples/query-ir-plan-bom.json")
+            execute.side_effect = [{"rows": [plan]}, {"rows": [plan]}, bom_result]
+            app.button[0].click().run()
+            self.assertEqual("RESOLVED", app.session_state["trace"]["resolution"]["status"])
+            app.text_area[0].input("查一下他的BOM吧").run()
+            app.button[0].click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(2, len(app.session_state["chat_turns"]))
+        self.assertEqual("SUCCESS", app.session_state["trace"]["execution"]["status"])
+        self.assertEqual(665, app.session_state["trace"]["context"]["inherited_plan_id"])
 
     def test_ui_keeps_per_turn_traces_and_can_reset(self):
         from streamlit.testing.v1 import AppTest

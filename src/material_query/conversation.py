@@ -51,10 +51,15 @@ def summarize_recent_turns(history: list[dict[str, Any]] | None) -> list[dict[st
         trace = turn.get("trace") or {}
         execution = trace.get("execution") or {}
         resolution = trace.get("resolution") or {}
-        verified = execution.get("status") == "SUCCESS" and resolution.get("status") == "RESOLVED"
+        query_succeeded = execution.get("status") == "SUCCESS"
+        # 第一轮仅确认实体、仍需补充分析目标时，也可以安全继承这个真实主键。
+        entity_only = (trace.get("status") == "NEEDS_INPUT"
+                       and (trace.get("request") or {}).get("route") == "clarify"
+                       and resolution.get("status") == "RESOLVED")
+        verified = (query_succeeded or entity_only) and resolution.get("status") == "RESOLVED"
         summaries.append({
             "question": str(turn.get("question", ""))[:300],
-            "status": "SUCCESS" if execution.get("status") == "SUCCESS" else "NOT_GROUNDED",
+            "status": "SUCCESS" if query_succeeded else "ENTITY_VERIFIED" if entity_only else "NOT_GROUNDED",
             "route": (trace.get("request") or {}).get("route"),
             "verified_plan_id": resolution.get("sourceId") if verified else None,
             "goal": str((trace.get("planning") or {}).get("candidate_query_ir", {}).get("goal", ""))[:300]
@@ -89,12 +94,12 @@ def rewrite_question(question: str, history: list[dict[str, Any]] | None) -> dic
         result.update(mode="CLARIFY", clarification="请明确新生产计划的ID、编号或名称。")
         return result
 
-    # 失败轮次不成为新锚点；成功的全局查询也不会让更早的单计划被悄悄沿用。
-    latest_success = next(((index, item) for index, item in reversed(list(enumerate(recent)))
-                           if item["status"] == "SUCCESS"), None)
-    if latest_success is None or latest_success[1]["verified_plan_id"] is None:
+    # 实体已确认但目标待澄清的轮次可成为锚点；未确认和全局查询均不会继承旧计划。
+    latest_anchor = next(((index, item) for index, item in reversed(list(enumerate(recent)))
+                          if item["status"] in {"SUCCESS", "ENTITY_VERIFIED"}), None)
+    if latest_anchor is None or latest_anchor[1]["verified_plan_id"] is None:
         return result
-    index, anchor = latest_success
+    index, anchor = latest_anchor
     plan_id = anchor["verified_plan_id"]
     if not isinstance(plan_id, int) or plan_id < 1:
         return result

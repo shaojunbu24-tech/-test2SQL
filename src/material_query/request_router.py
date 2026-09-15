@@ -72,10 +72,13 @@ class RequestRouter:
              "退料量、报工量，以及有效生产计划总数；这些都使用dynamic_query，不得误判为不支持。"
              "料差/投料差异才使用analyze_material_gap。缺少单计划定位、相对日期、多计划分析、"
              "净耗料或自定义公式等不支持请求用clarify并说明需要的信息或限制。"
+             "如果用户只说‘分析生产计划ID 665’而未说明分析什么，也用clarify；"
+             "仍要保留原文中的selector，使程序可先验证该计划实体，下一轮再补分析目标。"
              "查询全部有效计划数量允许selector=null。clarification正常时为空。"
              "下面的最近五轮摘要只用于理解当前问题；只可信任已验证的生产计划ID。"
              "当前改写后的问题中明确的新定位词和筛选条件覆盖历史摘要，"
              "不得从失败轮次继承实体，不得沿用旧阈值。"
+             "ENTITY_VERIFIED 表示上一轮只确认了实体、没有执行分析查询；这种规范ID可用于明确目标的下一轮。"
              "最近五轮摘要：{conversation_context}\n"
              "任务定义：{tasks}\n实体属性：{properties}\n契约：{schema}"),
             ("human", "{question}"),

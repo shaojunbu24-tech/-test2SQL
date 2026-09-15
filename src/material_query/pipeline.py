@@ -63,7 +63,7 @@ class MaterialQueryPipeline:
                 effective_question, context["recent_turns"]
             )
             locked_plan_id = context["explicit_source_id"] or context["inherited_plan_id"]
-            if request["route"] != "clarify" and locked_plan_id is not None:
+            if locked_plan_id is not None:
                 expected_selector = {"entityType": "ProductionPlan", "property": "sourceId",
                                      "operator": "EQ", "value": locked_plan_id}
                 if request["selector"] != expected_selector:
@@ -73,8 +73,6 @@ class MaterialQueryPipeline:
                     request["selector"] = expected_selector
             trace["request"] = request
             trace["timings_ms"]["request_parsing"] = self._elapsed_ms(started)
-            if request["route"] == "clarify":
-                return self._pending(trace, request["clarification"] or "请明确要查询的生产计划。")
             selector = request["selector"]
             plan_id = None
             if selector:
@@ -94,6 +92,9 @@ class MaterialQueryPipeline:
                                "REQUIRES_LOOKUP": "按编号或名称定位需要勾选真实只读查询。"}
                     return self._pending(trace, reasons[resolution["status"]])
                 plan_id = resolution["sourceId"]
+            # 目标不明确也可以先确认用户明确指定的实体；仅定位，不生成 Query IR/SQL。
+            if request["route"] == "clarify":
+                return self._pending(trace, request["clarification"] or "请明确要分析的内容。")
             started = perf_counter()
             if request["route"] == "analyze_material_gap":
                 if plan_id is None:

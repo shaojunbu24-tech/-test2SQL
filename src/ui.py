@@ -164,6 +164,8 @@ if st.session_state["chat_turns"]:
             elif (turn_trace.get("execution") or {}).get("status") == "SUCCESS":
                 st.write(f"只读查询返回 {turn_trace['execution']['row_count']} 行；可在下方查看本轮完整链路。")
             else:
+                if (turn_trace.get("resolution") or {}).get("status") == "RESOLVED":
+                    st.write(f"已确认生产计划ID {turn_trace['resolution']['sourceId']}；分析内容仍需补充，可直接追问。")
                 st.write((turn_trace.get("execution") or {}).get("reason", "本轮未产生查询结果。"))
             st.button("查看本轮 Query IR / SQL / 结果", key=f"view_chat_turn_{index}",
                       on_click=lambda chosen=index: st.session_state.update(selected_chat_turn=chosen))
@@ -207,6 +209,8 @@ with resolution_tab:
         st.json(trace.get("request", {"说明": "离线Query IR未经过自然语言解析。"}))
         resolution = trace.get("resolution", {})
         st.json(resolution)
+        if resolution.get("status") == "RESOLVED" and trace.get("status") == "NEEDS_INPUT":
+            st.success(f"计划 ID {resolution['sourceId']} 已通过真实数据库确认；下一轮可以直接说“查他的BOM”等明确目标。")
         if resolution.get("status") == "AMBIGUOUS":
             st.warning("名称不唯一，选择具体生产计划后再查询。")
             for plan in resolution["candidates"]:
