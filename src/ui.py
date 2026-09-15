@@ -158,26 +158,29 @@ if st.button("清空对话上下文", key="reset_chat_context"):
     st.session_state.pop("trace", None)
     st.success("最近五轮上下文已清空；本体浏览与七个展示页保持不变。")
 
-if st.session_state["chat_turns"]:
-    st.subheader("对话记录")
-    st.caption("仅最近五轮摘要进入下一次语义解析；历史 SQL 和数据库结果不会作为上下文发送给模型。")
-    for index, turn in enumerate(st.session_state["chat_turns"]):
-        with st.chat_message("user"):
-            st.write(turn["question"])
-        with st.chat_message("assistant"):
-            turn_trace = turn.get("trace") or {}
-            if turn.get("error"):
-                st.error(turn["error"])
-            elif (turn_trace.get("answer") or {}).get("status") == "SUCCESS":
-                st.write(turn_trace["answer"]["text"])
-            elif (turn_trace.get("execution") or {}).get("status") == "SUCCESS":
-                st.write(f"只读查询返回 {turn_trace['execution']['row_count']} 行；可在下方查看本轮完整链路。")
-            else:
-                if (turn_trace.get("resolution") or {}).get("status") == "RESOLVED":
-                    st.write(f"已确认生产计划ID {turn_trace['resolution']['sourceId']}；分析内容仍需补充，可直接追问。")
-                st.write((turn_trace.get("execution") or {}).get("reason", "本轮未产生查询结果。"))
-            st.button("查看本轮 Query IR / SQL / 结果", key=f"view_chat_turn_{index}",
-                      on_click=lambda chosen=index: st.session_state.update(selected_chat_turn=chosen))
+# 对话记录始终位于一个固定顶层容器内。内部消息数量变化时，后面的 tabs 和
+# agraph 仍保持同一页面树位置，避免自定义 iframe 被错误复用或重复卸载。
+with st.container(key="conversation_history"):
+    if st.session_state["chat_turns"]:
+        st.subheader("对话记录")
+        st.caption("仅最近五轮摘要进入下一次语义解析；历史 SQL 和数据库结果不会作为上下文发送给模型。")
+        for index, turn in enumerate(st.session_state["chat_turns"]):
+            with st.chat_message("user"):
+                st.write(turn["question"])
+            with st.chat_message("assistant"):
+                turn_trace = turn.get("trace") or {}
+                if turn.get("error"):
+                    st.error(turn["error"])
+                elif (turn_trace.get("answer") or {}).get("status") == "SUCCESS":
+                    st.write(turn_trace["answer"]["text"])
+                elif (turn_trace.get("execution") or {}).get("status") == "SUCCESS":
+                    st.write(f"只读查询返回 {turn_trace['execution']['row_count']} 行；可在下方查看本轮完整链路。")
+                else:
+                    if (turn_trace.get("resolution") or {}).get("status") == "RESOLVED":
+                        st.write(f"已确认生产计划ID {turn_trace['resolution']['sourceId']}；分析内容仍需补充，可直接追问。")
+                    st.write((turn_trace.get("execution") or {}).get("reason", "本轮未产生查询结果。"))
+                st.button("查看本轮 Query IR / SQL / 结果", key=f"view_chat_turn_{index}",
+                          on_click=lambda chosen=index: st.session_state.update(selected_chat_turn=chosen))
 
 selected_turn = st.session_state.get("selected_chat_turn")
 if selected_turn is not None and 0 <= selected_turn < len(st.session_state["chat_turns"]):

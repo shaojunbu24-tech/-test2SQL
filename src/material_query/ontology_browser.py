@@ -8,6 +8,21 @@ import streamlit as st
 from streamlit_agraph import Config, Edge, Node, agraph
 
 
+def _select_object(kind, object_id):
+    """由原生控件在重跑前更新选择，避免控件事件后再次调用 st.rerun。"""
+
+    st.session_state["selected_ontology_object"] = (kind, object_id)
+    st.session_state["ontology_picker"] = f"{kind}:{object_id}"
+
+
+def _select_from_picker():
+    """把备用下拉框的值同步为统一的本体选择状态。"""
+
+    chosen = st.session_state.get("ontology_picker", "entity:ProductionPlan")
+    kind, object_id = chosen.split(":", 1)
+    st.session_state["selected_ontology_object"] = (kind, object_id)
+
+
 def interactive_ontology_dot(
     registry, selected_type=None, selected_id=None,
     highlight_entities=None, highlight_relations=None,
@@ -153,13 +168,13 @@ def _relation_detail(registry, relation_id):
         st.json(catalog["designMapping"])
     left, right = st.columns(2)
     with left:
-        if st.button(f"查看起点：{registry.entity_types[relation['from']]['label']}", key="relation_from"):
-            st.session_state["selected_ontology_object"] = ("entity", relation["from"])
-            st.rerun()
+        st.button(f"查看起点：{registry.entity_types[relation['from']]['label']}",
+                  key="relation_from", on_click=_select_object,
+                  args=("entity", relation["from"]))
     with right:
-        if st.button(f"查看终点：{registry.entity_types[relation['to']]['label']}", key="relation_to"):
-            st.session_state["selected_ontology_object"] = ("entity", relation["to"])
-            st.rerun()
+        st.button(f"查看终点：{registry.entity_types[relation['to']]['label']}",
+                  key="relation_to", on_click=_select_object,
+                  args=("entity", relation["to"]))
 
 
 def show_ontology_browser(registry, query_hits=None):
@@ -182,7 +197,10 @@ def show_ontology_browser(registry, query_hits=None):
             clicked_type, clicked_id = clicked.split("::", 1)
             if (clicked_type, clicked_id) != (selected_type, selected_id):
                 st.session_state["selected_ontology_object"] = (clicked_type, clicked_id)
-                st.rerun()
+                # 自定义组件的点击已经触发了本轮重跑。直接更新本轮局部值，
+                # 右侧详情即可立即显示；不要再 st.rerun() 造成 iframe 双重卸载。
+                selected_type, selected_id = clicked_type, clicked_id
+                st.session_state["ontology_picker"] = f"{clicked_type}:{clicked_id}"
         if query_hits:
             st.write("本次命中实体", [item["label"] for item in query_hits.get("entities", [])] or ["无"])
             st.write("本次命中关系", [item["id"] for item in query_hits.get("relations", [])] or ["无"])
@@ -191,15 +209,17 @@ def show_ontology_browser(registry, query_hits=None):
             for index, (relation_id, relation) in enumerate(registry.relations.items()):
                 label = registry.property_semantics["relations"].get(relation_id, relation_id)
                 with relation_columns[index % 2]:
-                    if st.button(label, key=f"quick_relation_{relation_id}", width="stretch",
-                                 help=relation_id):
-                        st.session_state["selected_ontology_object"] = ("relation", relation_id)
-                        st.rerun()
+                    st.button(label, key=f"quick_relation_{relation_id}", width="stretch",
+                              help=relation_id, on_click=_select_object,
+                              args=("relation", relation_id))
         options = ([f"entity:{key}" for key in registry.entity_types]
                    + [f"relation:{key}" for key in registry.relations])
         current = f"{selected_type}:{selected_id}"
-        chosen = st.selectbox(
-            "选择实体或关系（图形点击的备用入口）", options, index=options.index(current),
+        if st.session_state.get("ontology_picker") not in options:
+            st.session_state["ontology_picker"] = current
+        st.selectbox(
+            "选择实体或关系（图形点击的备用入口）", options,
+            key="ontology_picker", on_change=_select_from_picker,
             format_func=lambda value: (
                 "实体 · " + registry.entity_types[value.split(":", 1)[1]]["label"]
                 if value.startswith("entity:")
@@ -207,10 +227,6 @@ def show_ontology_browser(registry, query_hits=None):
                     value.split(":", 1)[1], value)
             ),
         )
-        if chosen != current:
-            kind, object_id = chosen.split(":", 1)
-            st.session_state["selected_ontology_object"] = (kind, object_id)
-            st.rerun()
     with detail:
         st.subheader("选中对象详情")
         if selected_type == "entity":

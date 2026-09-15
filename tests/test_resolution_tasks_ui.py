@@ -145,6 +145,18 @@ class ResolutionTaskTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual("NEEDS_INPUT", app.session_state["trace"]["status"])
 
+    def test_graph_selection_does_not_force_second_rerun(self):
+        """agraph 的组件事件已经重跑页面，选择处理器不能再强制重跑一次。"""
+        import ast
+        import inspect
+        import textwrap
+        from material_query.ontology_browser import show_ontology_browser
+        source = inspect.getsource(show_ontology_browser)
+        calls = [node.func.attr for node in ast.walk(ast.parse(textwrap.dedent(source)))
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]
+        self.assertNotIn("rerun", calls)
+        self.assertIn("selected_type, selected_id = clicked_type, clicked_id", source)
+
     def test_interactive_graph_contains_entity_and_relation_links(self):
         """Graphviz 输出必须是真正带链接的 SVG 来源，而不是静态关系图。"""
         from material_query.ontology_browser import interactive_ontology_dot
