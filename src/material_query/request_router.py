@@ -60,7 +60,7 @@ class RequestRouter:
                            api_key=env["OPENAI_API_KEY"], base_url=env["OPENAI_BASE_URL"],
                            temperature=0, max_tokens=1200, timeout=60, max_retries=1)
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "解析制造业问数请求，只返回符合契约的JSON。实体定位值只能摘自用户原文，不能猜ID。"
+            ("system", "解析制造业问数请求，只返回符合契约的JSON。实体定位值只能摘自当前改写后的问题，不能猜ID。"
              "明确生产计划ID或生产计划665这种未标注编号的数字指代使用sourceId整数；"
              "明确说计划编号或计划编码（即使全是数字）使用planNo字符串；SCJH等业务编号也是planNo；"
              "用户明确选择生产计划ID时，以该选择替代后文的旧定位词。"
@@ -68,9 +68,15 @@ class RequestRouter:
              "明确要求料差、投料差异分析时使用analyze_material_gap；其他查询用dynamic_query。"
              "只有异常筛选而未给阈值时threshold=0.05；普通料差分析不筛选则threshold=null。"
              "超过/大于用GT，至少/不低于/异常用GTE，百分之五转0.05。limit默认100。"
-             "当前仅支持单计划分析和有效计划总数；缺少单计划定位、相对日期、多计划分析、"
+             "可执行的普通问数包括：单计划详情、该计划的BOM/物料清单、工序任务、领料量、"
+             "退料量、报工量，以及有效生产计划总数；这些都使用dynamic_query，不得误判为不支持。"
+             "料差/投料差异才使用analyze_material_gap。缺少单计划定位、相对日期、多计划分析、"
              "净耗料或自定义公式等不支持请求用clarify并说明需要的信息或限制。"
              "查询全部有效计划数量允许selector=null。clarification正常时为空。"
+             "下面的最近五轮摘要只用于理解当前问题；只可信任已验证的生产计划ID。"
+             "当前改写后的问题中明确的新定位词和筛选条件覆盖历史摘要，"
+             "不得从失败轮次继承实体，不得沿用旧阈值。"
+             "最近五轮摘要：{conversation_context}\n"
              "任务定义：{tasks}\n实体属性：{properties}\n契约：{schema}"),
             ("human", "{question}"),
         ])
@@ -79,6 +85,8 @@ class RequestRouter:
                         "schema": json.dumps(REQUEST_SCHEMA, ensure_ascii=False)}
         self.chain = prompt | model.bind(response_format={"type": "json_object"}) | JsonOutputParser()
 
-    def parse(self, question):
+    def parse(self, question, conversation_context=None):
         """输出的是定位条件，具体数据库实例由 EntityResolver 验证。"""
-        return validate_request(self.chain.invoke({**self.context, "question": question}))
+        return validate_request(self.chain.invoke({**self.context, "question": question,
+                                                   "conversation_context": json.dumps(
+                                                       conversation_context or [], ensure_ascii=False)}))

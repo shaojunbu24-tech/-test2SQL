@@ -16,6 +16,7 @@ from .validator import QueryIRValidator
 from .request_router import RequestRouter
 from .entity_resolver import EntityResolver
 from .tasks import expand_material_gap
+from .conversation import rewrite_question
 
 
 class MaterialQueryPipeline:
@@ -35,6 +36,7 @@ class MaterialQueryPipeline:
         execute: bool = False,
         answer_with_llm: bool = False,
         candidate_query_ir: dict[str, Any] | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """运行完整链路；candidate_query_ir 用于不调用模型的离线调试。"""
 
@@ -47,9 +49,28 @@ class MaterialQueryPipeline:
             "timings_ms": {},
         }
 
+        context = rewrite_question(question, conversation_history) if candidate_query_ir is None else None
+        if context is not None:
+            trace["context"] = context
+            trace["input"]["rewritten_question"] = context["effective_question"]
+            if context["mode"] in {"CLARIFY", "RESET"}:
+                return self._pending(trace, context["clarification"])
+        effective_question = context["effective_question"] if context else question
+
         started = perf_counter()
         if candidate_query_ir is None:
-            request = RequestRouter(self.registry, self.model_name).parse(question)
+            request = RequestRouter(self.registry, self.model_name).parse(
+                effective_question, context["recent_turns"]
+            )
+            locked_plan_id = context["explicit_source_id"] or context["inherited_plan_id"]
+            if request["route"] != "clarify" and locked_plan_id is not None:
+                expected_selector = {"entityType": "ProductionPlan", "property": "sourceId",
+                                     "operator": "EQ", "value": locked_plan_id}
+                if request["selector"] != expected_selector:
+                    trace["selector_guard"] = {"model_selector": request["selector"],
+                                               "enforced_selector": expected_selector,
+                                               "reason": "本轮显式ID或最近成功轮次的规范ID优先"}
+                    request["selector"] = expected_selector
             trace["request"] = request
             trace["timings_ms"]["request_parsing"] = self._elapsed_ms(started)
             if request["route"] == "clarify":
@@ -77,18 +98,18 @@ class MaterialQueryPipeline:
             if request["route"] == "analyze_material_gap":
                 if plan_id is None:
                     return self._pending(trace, "料差分析需要指定一个生产计划ID、编号或名称。")
-                candidate_query_ir = expand_material_gap(self.registry, question, plan_id, request)
+                candidate_query_ir = expand_material_gap(self.registry, effective_question, plan_id, request)
                 trace["task"] = {"id": "analyze_material_gap", **self.registry.tasks["analyze_material_gap"],
                                  "arguments": candidate_query_ir["parameters"], "comparison": request["comparison"]}
                 source = "REGISTERED_TASK"
             else:
                 planner = QueryIRPlanner(self.registry, self.model_name)
-                grounded_question = (question + f"\n已解析的生产计划主键 plan_id={plan_id}。"
+                grounded_question = (effective_question + f"\n已解析的生产计划主键 plan_id={plan_id}。"
                                      "只使用此已解析主键，不要从原名称或编号中重新提取数字。")
                 candidate_query_ir = planner.plan(grounded_question)
                 # 解析器确认的定位条件具有优先级，模型不能在规划时换一个计划。
                 candidate_query_ir["parameters"]["plan_id"] = plan_id
-                candidate_query_ir["goal"] = question
+                candidate_query_ir["goal"] = effective_question
                 source = "LANGCHAIN_LLM"
                 # 只修复一次不合法的动态计划，并保留原计划和校验原因用于审计。
                 try:
@@ -97,7 +118,7 @@ class MaterialQueryPipeline:
                     trace["planning_repair"] = {"error": str(error), "original_ir": candidate_query_ir}
                     candidate_query_ir = planner.plan(grounded_question + "\n上次校验失败，请修正：" + str(error))
                     candidate_query_ir["parameters"]["plan_id"] = plan_id
-                    candidate_query_ir["goal"] = question
+                    candidate_query_ir["goal"] = effective_question
         else:
             source = "OFFLINE_QUERY_IR"
         trace["timings_ms"]["planning"] = self._elapsed_ms(started)

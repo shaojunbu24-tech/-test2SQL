@@ -8,6 +8,7 @@ import streamlit as st
 from material_query import MaterialQueryPipeline
 from material_query.query_hits import extract_query_hits
 from material_query.ontology_browser import interactive_ontology_dot, show_ontology_browser
+from material_query.conversation import MAX_CONTEXT_TURNS
 
 
 st.set_page_config(page_title="料查分析 Query IR MVP", page_icon="🔎", layout="wide")
@@ -71,6 +72,7 @@ executable_entity_count = summary.get(
 
 st.title("料查分析：自然语言 → Query IR → SQL → 执行")
 st.caption("模型只规划本体语言；校验、物理映射、SQL 生成和数据库执行由确定性程序完成。")
+st.session_state.setdefault("chat_turns", [])
 
 with st.sidebar:
     st.subheader("运行范围")
@@ -87,15 +89,25 @@ with st.sidebar:
     answer_with_llm = st.checkbox("由大模型基于结果回答（会发送本次结果）", value=False)
     st.warning("执行器只允许 mom-test、SELECT/WITH 和只读事务。")
 
-question = st.text_area(
-    "用户问题",
+st.text_area(
+    "当前提问（可继续追问上一轮）",
     value="分析生产计划ID 665的投料差异，筛选差异率超过5%的记录",
     key="question_input",
     height=90,
 )
-run_clicked = st.button("生成并运行", type="primary", width="stretch")
+
+
+def queue_question():
+    """提交前保存本轮文本，再清空输入框，便于直接输入下一轮追问。"""
+
+    st.session_state["submitted_question"] = st.session_state.get("question_input", "")
+    st.session_state["question_input"] = ""
+
+
+run_clicked = st.button("生成并运行", type="primary", width="stretch", on_click=queue_question)
 
 if run_clicked:
+    question = st.session_state.pop("submitted_question", "")
     # 新请求开始时先清理旧结果，避免失败后继续展示上一次 Query IR。
     st.session_state.pop("trace", None)
     if not question.strip():
@@ -103,13 +115,66 @@ if run_clicked:
     else:
         with st.spinner("正在生成 Query IR、编译 SQL 并执行……"):
             try:
-                st.session_state["trace"] = pipeline.run(
+                new_trace = pipeline.run(
                     question.strip(),
                     execute=execute,
                     answer_with_llm=answer_with_llm,
+                    conversation_history=st.session_state["chat_turns"],
                 )
             except Exception as error:
+                st.session_state["chat_turns"].append(
+                    {"question": question.strip(), "trace": None, "error": str(error)}
+                )
                 st.error(str(error))
+            else:
+                if (new_trace.get("context") or {}).get("mode") == "RESET":
+                    st.session_state["chat_turns"] = []
+                    st.session_state.pop("trace", None)
+                    st.success("对话上下文已清空，请输入新的问题。")
+                else:
+                    st.session_state["chat_turns"].append(
+                        {"question": question.strip(), "trace": new_trace, "error": None}
+                    )
+                    st.session_state["trace"] = new_trace
+            # 对话窗口最多保存五轮完整追踪，避免业务结果在页面会话中无限累积。
+            st.session_state["chat_turns"] = st.session_state["chat_turns"][-MAX_CONTEXT_TURNS:]
+            if st.session_state["chat_turns"]:
+                st.session_state["selected_chat_turn"] = len(st.session_state["chat_turns"]) - 1
+            else:
+                st.session_state.pop("selected_chat_turn", None)
+
+if st.button("清空对话上下文", key="reset_chat_context"):
+    st.session_state["chat_turns"] = []
+    st.session_state.pop("selected_chat_turn", None)
+    st.session_state.pop("trace", None)
+    st.success("最近五轮上下文已清空；本体浏览与七个展示页保持不变。")
+
+if st.session_state["chat_turns"]:
+    st.subheader("对话记录")
+    st.caption("仅最近五轮摘要进入下一次语义解析；历史 SQL 和数据库结果不会作为上下文发送给模型。")
+    for index, turn in enumerate(st.session_state["chat_turns"]):
+        with st.chat_message("user"):
+            st.write(turn["question"])
+        with st.chat_message("assistant"):
+            turn_trace = turn.get("trace") or {}
+            if turn.get("error"):
+                st.error(turn["error"])
+            elif (turn_trace.get("answer") or {}).get("status") == "SUCCESS":
+                st.write(turn_trace["answer"]["text"])
+            elif (turn_trace.get("execution") or {}).get("status") == "SUCCESS":
+                st.write(f"只读查询返回 {turn_trace['execution']['row_count']} 行；可在下方查看本轮完整链路。")
+            else:
+                st.write((turn_trace.get("execution") or {}).get("reason", "本轮未产生查询结果。"))
+            st.button("查看本轮 Query IR / SQL / 结果", key=f"view_chat_turn_{index}",
+                      on_click=lambda chosen=index: st.session_state.update(selected_chat_turn=chosen))
+
+selected_turn = st.session_state.get("selected_chat_turn")
+if selected_turn is not None and 0 <= selected_turn < len(st.session_state["chat_turns"]):
+    selected_trace = st.session_state["chat_turns"][selected_turn].get("trace")
+    if selected_trace is None:
+        st.session_state.pop("trace", None)
+    else:
+        st.session_state["trace"] = selected_trace
 
 trace = st.session_state.get("trace")
 
@@ -135,6 +200,9 @@ with browser_tab:
 
 with resolution_tab:
     if trace:
+        if trace.get("context"):
+            st.subheader("最近五轮上下文 → 本轮独立问题")
+            st.json(trace["context"])
         st.subheader("用户表达 → 本体属性 → 数据库记录")
         st.json(trace.get("request", {"说明": "离线Query IR未经过自然语言解析。"}))
         resolution = trace.get("resolution", {})
@@ -143,7 +211,7 @@ with resolution_tab:
             st.warning("名称不唯一，选择具体生产计划后再查询。")
             for plan in resolution["candidates"]:
                 # 回调发生在下一轮渲染前，因此可安全修改文本框的 session_state。
-                def choose_plan(plan_id=plan["id"], original=trace["input"]["natural_language"]):
+                def choose_plan(plan_id=plan["id"], original=trace["input"].get("rewritten_question", trace["input"]["natural_language"])):
                     st.session_state["question_input"] = f"明确选择生产计划ID {plan_id}，按这个ID执行以下查询要求（忽略原定位词）：{original}"
                 st.button(f"选择 ID {plan['id']} · {plan['code']}", key=f"choose_{plan['id']}", on_click=choose_plan)
         if trace.get("task"):

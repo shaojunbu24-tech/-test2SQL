@@ -137,6 +137,7 @@ class ResolutionTaskTests(unittest.TestCase):
         app.selectbox[0].select("relation:HAS_PLAN_BOM_ITEM").run()
         self.assertEqual(("relation", "HAS_PLAN_BOM_ITEM"), app.session_state["selected_ontology_object"])
         self.assertTrue(any("编译器可以把该关系转换为 JOIN" in item.value for item in app.success))
+        app.text_area[0].input("查MRP计划料差").run()
         with patch("material_query.pipeline.RequestRouter") as router:
             router.return_value.parse.return_value = request("name", "MRP")
             app.checkbox[0].uncheck().run()
@@ -180,6 +181,7 @@ class ResolutionTaskTests(unittest.TestCase):
             self.assertTrue(any("单位待确认" in item.value for item in app.markdown))
             router.return_value.parse.return_value = request("name", "MRP")
             execute.side_effect = [{"rows": [plan, {**plan, "id": 666}]}]
+            app.text_area[0].input("查MRP计划料差").run()
             app.button[0].click().run()
             self.assertFalse(app.exception)
             app.button(key="choose_665").click().run()
