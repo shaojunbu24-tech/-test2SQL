@@ -145,6 +145,19 @@ class ResolutionTaskTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual("NEEDS_INPUT", app.session_state["trace"]["status"])
 
+    def test_overview_has_independent_inline_object_details(self):
+        """第二栏选择对象应在本栏使用独立状态显示详情，不通过 URL 跳转。"""
+        from streamlit.testing.v1 import AppTest
+        app = AppTest.from_file(str(PROJECT / "src/ui.py"), default_timeout=20).run()
+        self.assertGreaterEqual(len(app.selectbox), 2)
+        app.selectbox[1].select("entity:PlanBOMItem").run()
+        self.assertEqual(("entity", "PlanBOMItem"),
+                         app.session_state["overview_selected_ontology_object"])
+        self.assertEqual("entity:PlanBOMItem", app.session_state["overview_ontology_picker"])
+        self.assertEqual("计划版本BOM明细",
+                         self.registry.entity_types["PlanBOMItem"]["label"])
+        self.assertFalse(app.exception)
+
     def test_graph_selection_does_not_force_second_rerun(self):
         """agraph 的组件事件已经重跑页面，选择处理器不能再强制重跑一次。"""
         import ast

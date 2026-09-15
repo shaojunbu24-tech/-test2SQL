@@ -8,19 +8,19 @@ import streamlit as st
 from streamlit_agraph import Config, Edge, Node, agraph
 
 
-def _select_object(kind, object_id):
+def _select_object(kind, object_id, selection_key, picker_key):
     """由原生控件在重跑前更新选择，避免控件事件后再次调用 st.rerun。"""
 
-    st.session_state["selected_ontology_object"] = (kind, object_id)
-    st.session_state["ontology_picker"] = f"{kind}:{object_id}"
+    st.session_state[selection_key] = (kind, object_id)
+    st.session_state[picker_key] = f"{kind}:{object_id}"
 
 
-def _select_from_picker():
+def _select_from_picker(selection_key, picker_key):
     """把备用下拉框的值同步为统一的本体选择状态。"""
 
-    chosen = st.session_state.get("ontology_picker", "entity:ProductionPlan")
+    chosen = st.session_state.get(picker_key, "entity:ProductionPlan")
     kind, object_id = chosen.split(":", 1)
-    st.session_state["selected_ontology_object"] = (kind, object_id)
+    st.session_state[selection_key] = (kind, object_id)
 
 
 def interactive_ontology_dot(
@@ -63,19 +63,20 @@ def interactive_ontology_dot(
     return "\n".join(lines)
 
 
-def selected_ontology(registry):
+def selected_ontology(registry, selection_key="selected_ontology_object", allow_query_params=True):
     """优先读取组件内选择，再兼容旧图URL；非法参数安全回退。"""
-    selected = st.session_state.get("selected_ontology_object")
+    selected = st.session_state.get(selection_key)
     if selected and selected[0] == "relation" and selected[1] in registry.relations:
         return selected
     if selected and selected[0] == "entity" and selected[1] in registry.entity_types:
         return selected
-    relation_id = st.query_params.get("ontology_relation")
-    entity_id = st.query_params.get("ontology_entity")
-    if relation_id in registry.relations:
-        return "relation", relation_id
-    if entity_id in registry.entity_types:
-        return "entity", entity_id
+    if allow_query_params:
+        relation_id = st.query_params.get("ontology_relation")
+        entity_id = st.query_params.get("ontology_entity")
+        if relation_id in registry.relations:
+            return "relation", relation_id
+        if entity_id in registry.entity_types:
+            return "entity", entity_id
     return "entity", "ProductionPlan"
 
 
@@ -143,7 +144,8 @@ def _entity_detail(registry, entity_id):
                  "本体设计映射": registry.semantic["entity_mappings"].get(entity_id)})
 
 
-def _relation_detail(registry, relation_id):
+def _relation_detail(registry, relation_id, key_prefix="", selection_key="selected_ontology_object",
+                     picker_key="ontology_picker"):
     """显示关系语义、两端实体、可执行状态和 JOIN 定义。"""
     relation = registry.relations[relation_id]
     catalog = next(item for item in registry.relation_catalog(relation["from"])
@@ -169,18 +171,24 @@ def _relation_detail(registry, relation_id):
     left, right = st.columns(2)
     with left:
         st.button(f"查看起点：{registry.entity_types[relation['from']]['label']}",
-                  key="relation_from", on_click=_select_object,
-                  args=("entity", relation["from"]))
+                  key=key_prefix + "relation_from", on_click=_select_object,
+                  args=("entity", relation["from"], selection_key, picker_key))
     with right:
         st.button(f"查看终点：{registry.entity_types[relation['to']]['label']}",
-                  key="relation_to", on_click=_select_object,
-                  args=("entity", relation["to"]))
+                  key=key_prefix + "relation_to", on_click=_select_object,
+                  args=("entity", relation["to"], selection_key, picker_key))
 
 
-def show_ontology_browser(registry, query_hits=None):
+def show_ontology_browser(registry, query_hits=None, state_prefix="", height=680,
+                          heading="全量本体关系图与本次查询命中", show_hit_summary=True):
     """左侧全量交互图高亮查询命中，右侧随对象选择显示详细信息。"""
-    selected_type, selected_id = selected_ontology(registry)
-    st.subheader("全量本体关系图与本次查询命中")
+    key_prefix = state_prefix + "_" if state_prefix else ""
+    selection_key = key_prefix + "selected_ontology_object"
+    picker_key = key_prefix + "ontology_picker"
+    selected_type, selected_id = selected_ontology(
+        registry, selection_key, allow_query_params=not state_prefix
+    )
+    st.subheader(heading)
     st.caption("矩形是实体，菱形是关系。绿色/橙色表示本次查询命中，蓝色/红色表示当前选中；支持拖拽、缩放和点击。")
     graph, detail = st.columns([1.25, 1], gap="large")
     with graph:
@@ -188,7 +196,7 @@ def show_ontology_browser(registry, query_hits=None):
         clicked = agraph(
             nodes=nodes, edges=edges,
             config=Config(
-                height=680, width=900, directed=True, physics=True,
+                height=height, width=900, directed=True, physics=True,
                 hierarchical=False, nodeHighlightBehavior=False,
                 interaction={"hover": True, "navigationButtons": True, "keyboard": True},
             ),
@@ -196,12 +204,12 @@ def show_ontology_browser(registry, query_hits=None):
         if clicked and "::" in clicked:
             clicked_type, clicked_id = clicked.split("::", 1)
             if (clicked_type, clicked_id) != (selected_type, selected_id):
-                st.session_state["selected_ontology_object"] = (clicked_type, clicked_id)
+                st.session_state[selection_key] = (clicked_type, clicked_id)
                 # 自定义组件的点击已经触发了本轮重跑。直接更新本轮局部值，
                 # 右侧详情即可立即显示；不要再 st.rerun() 造成 iframe 双重卸载。
                 selected_type, selected_id = clicked_type, clicked_id
-                st.session_state["ontology_picker"] = f"{clicked_type}:{clicked_id}"
-        if query_hits:
+                st.session_state[picker_key] = f"{clicked_type}:{clicked_id}"
+        if query_hits and show_hit_summary:
             st.write("本次命中实体", [item["label"] for item in query_hits.get("entities", [])] or ["无"])
             st.write("本次命中关系", [item["id"] for item in query_hits.get("relations", [])] or ["无"])
         with st.expander("关系快捷入口（连线难点时使用）"):
@@ -209,17 +217,18 @@ def show_ontology_browser(registry, query_hits=None):
             for index, (relation_id, relation) in enumerate(registry.relations.items()):
                 label = registry.property_semantics["relations"].get(relation_id, relation_id)
                 with relation_columns[index % 2]:
-                    st.button(label, key=f"quick_relation_{relation_id}", width="stretch",
+                    st.button(label, key=f"{key_prefix}quick_relation_{relation_id}", width="stretch",
                               help=relation_id, on_click=_select_object,
-                              args=("relation", relation_id))
+                              args=("relation", relation_id, selection_key, picker_key))
         options = ([f"entity:{key}" for key in registry.entity_types]
                    + [f"relation:{key}" for key in registry.relations])
         current = f"{selected_type}:{selected_id}"
-        if st.session_state.get("ontology_picker") not in options:
-            st.session_state["ontology_picker"] = current
+        if st.session_state.get(picker_key) not in options:
+            st.session_state[picker_key] = current
         st.selectbox(
             "选择实体或关系（图形点击的备用入口）", options,
-            key="ontology_picker", on_change=_select_from_picker,
+            key=picker_key, on_change=_select_from_picker,
+            args=(selection_key, picker_key),
             format_func=lambda value: (
                 "实体 · " + registry.entity_types[value.split(":", 1)[1]]["label"]
                 if value.startswith("entity:")
@@ -232,4 +241,4 @@ def show_ontology_browser(registry, query_hits=None):
         if selected_type == "entity":
             _entity_detail(registry, selected_id)
         else:
-            _relation_detail(registry, selected_id)
+            _relation_detail(registry, selected_id, key_prefix, selection_key, picker_key)

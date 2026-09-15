@@ -4,14 +4,36 @@ import json
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from material_query import MaterialQueryPipeline
 from material_query.query_hits import extract_query_hits
-from material_query.ontology_browser import interactive_ontology_dot, show_ontology_browser
+from material_query.ontology_browser import show_ontology_browser
 from material_query.conversation import MAX_CONTEXT_TURNS
 
 
 st.set_page_config(page_title="料查分析 Query IR MVP", page_icon="🔎", layout="wide")
+
+# Chrome 自动翻译会直接改写 React 管理的文本节点，随后 Streamlit 更新页面时可能
+# 报 removeChild/insertBefore，并显示与实体 ID 不一致的翻译标题。尽早标记整页不翻译。
+components.html(
+    """<script>
+    const doc = window.parent.document;
+    doc.documentElement.lang = "zh-CN";
+    doc.documentElement.setAttribute("translate", "no");
+    doc.documentElement.classList.add("notranslate");
+    doc.body.setAttribute("translate", "no");
+    doc.body.classList.add("notranslate");
+    let meta = doc.querySelector('meta[name="google"]');
+    if (!meta) {
+      meta = doc.createElement("meta");
+      meta.name = "google";
+      doc.head.appendChild(meta);
+    }
+    meta.content = "notranslate";
+    </script>""",
+    height=0,
+)
 
 
 def stable_json(value, empty_message="暂无数据"):
@@ -240,37 +262,23 @@ with resolution_tab:
         st.info("运行查询后可查看定位属性、候选记录、规范ID和任务参数。")
 
 with ontology_tab:
-    left, right = st.columns([1, 1])
-    with left:
-        st.subheader("本次查询命中明细")
+    # 第二栏使用独立状态的交互图，点击后在本栏右侧显示详情，不再通过 URL
+    # 跳回“本体浏览”。高度不同也让两个 agraph 组件拥有稳定的独立实例。
+    show_ontology_browser(
+        pipeline.registry, current_hits, state_prefix="overview", height=620,
+        heading="全部逻辑本体关系图与对象详情", show_hit_summary=False,
+    )
+    context = ontology_overview(pipeline.registry)
+    with st.expander("查看本次命中明细与全部清单"):
         if trace:
             hits = current_hits or {"entities": [], "relations": [], "metrics": [], "operators": []}
-            st.info("本次命中已经高亮在「本体浏览」的全量关系图中；图中实体、关系均可点击查看详情。")
             st.write("命中实体", [item["id"] for item in hits["entities"]] or ["无"])
             st.write("命中关系", [item["id"] for item in hits["relations"]] or ["无"])
             st.write("命中指标", [item["id"] for item in hits["metrics"]] or ["无"])
             st.write("使用算子", hits["operators"] or ["无"])
-            st.write("IR 显式引用的属性及命中字段")
             st.dataframe(pd.DataFrame(hits.get("properties", [])), hide_index=True, width="stretch")
-            st.caption("名称/编号的定位字段见「实体定位与任务」；JOIN键和指标依赖见「校验与映射」。")
         else:
-            st.info("运行一次查询后，这里只显示本次 Query IR 实际命中的本体。")
-
-        st.divider()
-        st.subheader("全部逻辑本体关系图（链接模式）")
-        context = ontology_overview(pipeline.registry)
-        try:
-            st.graphviz_chart(
-                interactive_ontology_dot(
-                    pipeline.registry,
-                    highlight_entities=[item["id"] for item in (current_hits or {}).get("entities", [])],
-                    highlight_relations=[item["id"] for item in (current_hits or {}).get("relations", [])],
-                ), width="stretch"
-            )
-            st.caption("主要交互入口位于「本体浏览」；这里保留轻量链接图用于概览。")
-        except Exception:
-            st.info("当前环境未渲染 Graphviz，右侧仍可查看完整关系表。")
-    with right:
+            st.info("运行一次查询后显示本次 Query IR 实际命中的本体。")
         st.subheader("全部逻辑实体、关系与指标")
         st.write("实体（mvpExecutable 表示当前是否可编译执行）")
         st.dataframe(pd.DataFrame(context["entities"]), width="stretch")
