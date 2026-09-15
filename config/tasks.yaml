@@ -1,0 +1,15 @@
+# 固定分析任务注册表；实现仍复用 Query IR 校验和 SQL 编译器。
+version: 1
+tasks:
+  analyze_material_gap:
+    label: 生产计划料差分析
+    version: material-gap-v1
+    description: 按工序任务和直接投入物料比较总领料推算产出与实际报工；退料辅助展示。
+    recipe: query-ir-material-gap.json
+    required_entity: ProductionPlan
+    parameters: [plan_id, threshold, comparison, limit]
+    grain: [ProcessTask, Product]
+    limitations:
+      - 总领料口径，退料不抵扣；不含损耗率修正。
+      - 仅匹配任务产出节点的直接子BOM，不进行全树递归。
+      - 非BOM领料和BOM节点多义匹配尚需单独诊断，结果不代表完整根因分析。

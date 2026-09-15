@@ -16,6 +16,7 @@ def extract_query_hits(registry: Any, query_ir: dict[str, Any]) -> dict[str, Any
     relation_ids: list[str] = []
     metric_ids: list[str] = []
     operator_ids: list[str] = []
+    property_ids: list[str] = []
 
     def append_once(values: list[str], value: str | None) -> None:
         """按 Query IR 中的首次出现顺序去重。"""
@@ -29,6 +30,8 @@ def extract_query_hits(registry: Any, query_ir: dict[str, Any]) -> dict[str, Any
 
         if operator == "Scan":
             append_once(entity_ids, step["entityType"])
+            for condition in step.get("filters", []):
+                append_once(property_ids, step["entityType"] + "." + condition["property"])
 
         if operator == "Traverse":
             relation_id = step["relation"]
@@ -48,8 +51,21 @@ def extract_query_hits(registry: Any, query_ir: dict[str, Any]) -> dict[str, Any
 
         for dimension in step.get("dimensions", []):
             append_once(entity_ids, dimension.split(".", 1)[0])
+            append_once(property_ids, dimension)
+
+        if operator == "Sort" and "." in step.get("by", ""):
+            append_once(property_ids, step["by"])
+
+    # 只列出 IR 明确引用的属性；JOIN 键与指标内部依赖在编译映射轨迹中展示。
+    properties = []
+    for reference in property_ids:
+        entity_id, prop = reference.split(".", 1)
+        mapping = registry.mapping["entities"].get(entity_id, {})
+        properties.append({"id": reference, "physicalField": mapping.get("properties", {}).get(prop),
+                           "table": mapping.get("table") or mapping.get("detail_table")})
 
     return {
+        "properties": properties,
         "entities": [
             {
                 "id": entity_id,

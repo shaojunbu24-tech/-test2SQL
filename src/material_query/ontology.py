@@ -43,6 +43,40 @@ class OntologyRegistry:
         self.semantic = load_yaml(ONTOLOGY_DIR / "semantic-model.mom-test.yaml")
         self.mapping = load_yaml(CONFIG_DIR / "mapping.yaml")
         self.query_ir_schema = load_json(CONFIG_DIR / "query-ir.schema.json")
+        self.property_semantics = load_yaml(CONFIG_DIR / "property-semantics.yaml")
+        self.tasks = load_yaml(CONFIG_DIR / "tasks.yaml")["tasks"]
+
+    def property_catalog(self, entity_id, include_physical=True):
+        """合并逻辑属性、关联键和可执行能力，模型上下文可排除物理字段。"""
+        logical = self.entity_types[entity_id].get("properties", {})
+        physical = self.mapping["entities"].get(entity_id, {})
+        design = self.semantic["entity_mappings"].get(entity_id, {})
+        mapped = physical.get("properties", {})
+        rows = []
+        for key in sorted(set(logical) | set(mapped)):
+            definition = {**logical.get(key, {}), **self.property_semantics["properties"].get(key, {})}
+            row = {"id": key, "label": definition.get("label", key),
+                   "type": definition.get("type", "待确认"),
+                   "description": definition.get("description", definition.get("label", key)),
+                   "aliases": definition.get("aliases", []), "role": definition.get("role", "attribute"),
+                   "unit": "待业务确认" if definition.get("type") == "decimal" else "不适用",
+                   "projectable": f"{entity_id}.{key}" in self.mapping["output_fields"],
+                   "resolvable": entity_id == "ProductionPlan" and key in {"sourceId", "planNo", "name"},
+                   "filterableInQueryIR": entity_id == "ProductionPlan" and key == "sourceId"}
+            if include_physical:
+                row.update(physicalField=mapped.get(key, design.get("properties", {}).get(key, "未映射")),
+                           executableMapping=key in mapped)
+            rows.append(row)
+        return rows
+
+    def relation_catalog(self, entity_id):
+        """同时显示逻辑关系、执行映射和设计映射的置信度。"""
+        return [{"id": key, **value,
+                 "description": self.property_semantics["relations"].get(key, key),
+                 "executable": key in self.mapping["relations"],
+                 "mapping": self.mapping["relations"].get(key),
+                 "designMapping": self.semantic["relation_mappings"].get(key)}
+                for key, value in self.relations.items() if entity_id in {value["from"], value["to"]}]
 
     @property
     def entity_types(self) -> dict[str, Any]:
@@ -73,7 +107,7 @@ class OntologyRegistry:
                 {
                     "id": entity_id,
                     "label": definition.get("label"),
-                    "properties": sorted(definition.get("properties", {}).keys()),
+                    "properties": self.property_catalog(entity_id, include_physical=False),
                 }
             )
         relations = []
@@ -85,6 +119,7 @@ class OntologyRegistry:
                         "from": definition["from"],
                         "to": definition["to"],
                         "cardinality": definition.get("cardinality"),
+                        "description": self.property_semantics["relations"].get(relation_id, relation_id),
                     }
                 )
         metrics = []
@@ -116,6 +151,7 @@ class OntologyRegistry:
                 "Sort.by 只能使用 projectableDimensions 中的字段或已计算指标。",
                 "只加入用户问题和指标依赖真正需要的关系分支。",
                 "基础指标使用 Aggregate，派生指标使用 ComputeMetric。",
+                "Aggregate.groupBy 必须与指标登记的 grain 完全一致，不得省略或改为其他粒度。",
                 "用户说差异率超过某阈值或异常筛选时，默认计算并过滤 severityRate；只有明确要求正负方向时才过滤 signedDifferenceRate。",
                 "每个步骤只能引用前面已经 bind 的变量。",
                 "最终必须经过 Project，并以 Limit 结束。",

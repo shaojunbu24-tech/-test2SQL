@@ -32,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="在严格只读事务中连接并查询 mom-test。",
     )
+    parser.add_argument(
+        "--answer",
+        action="store_true",
+        help="SQL 执行后调用大模型，基于本次实际结果生成回答。",
+    )
     parser.add_argument("--show-ir", action="store_true", help="展开完整 Query IR JSON。")
     parser.add_argument("--show-sql", action="store_true", help="展开完整参数化 SQL。")
     parser.add_argument(
@@ -58,6 +63,7 @@ def main() -> None:
         trace = pipeline.run(
             question=question,
             execute=args.execute,
+            answer_with_llm=args.answer,
             candidate_query_ir=candidate_query_ir,
         )
     except Exception as error:

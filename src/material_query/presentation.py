@@ -15,7 +15,17 @@ def print_trace(
     print("\n[1] 自然语言")
     print(trace["input"]["natural_language"])
 
-    print("\n[2] 模型生成的 Query IR")
+    if "request" in trace:
+        print("\n[解析与路由]")
+        print(json.dumps(trace["request"], ensure_ascii=False))
+        print(json.dumps(trace.get("resolution", {}), ensure_ascii=False, default=str))
+    if "task" in trace:
+        print(f"注册任务：{trace['task']['id']} / {trace['task']['version']}")
+    if "planning" not in trace:
+        print(trace["execution"]["reason"])
+        return
+
+    print("\n[2] 本次 Query IR（来源见下方）")
     query_ir = trace["planning"]["candidate_query_ir"]
     print(
         f"来源={trace['planning']['source']}，目标={query_ir['goal']}，"
@@ -69,8 +79,15 @@ def print_trace(
         for row in execution["rows"]:
             print(json.dumps(row, ensure_ascii=False, default=str))
 
+    print("\n[7] 基于 SQL 结果的回答")
+    answer = trace.get("answer", {})
+    if answer.get("status") == "SUCCESS":
+        print(answer["text"])
+    else:
+        print(answer.get("reason", "未生成回答。"))
+
     if show_context:
-        print("\n[7] 提供给模型的本体上下文")
+        print("\n[8] 提供给模型的本体上下文")
         print(json.dumps(trace["ontology"]["planner_context"], ensure_ascii=False, indent=2))
 
     print(f"\n耗时(ms)={json.dumps(trace['timings_ms'], ensure_ascii=False)}")
@@ -95,4 +112,3 @@ def _step_summary(step: dict[str, Any]) -> str:
     if operator == "Limit":
         return f"{step['input']} limit=:limit"
     return str(step.get("input", ""))
-

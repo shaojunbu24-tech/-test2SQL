@@ -11,5 +11,7 @@ langchain-openai>=0.3,<0.4
 jsonschema>=4.20,<5.0
 # Streamlit 提供本地可视化调试界面。
 streamlit>=1.40,<2.0
+# 交互式本体图支持点击、拖拽和缩放；关系显示为可点击菱形节点。
+streamlit-agraph>=0.0.45,<0.1
 # macOS 自带 Python 3.9 使用 LibreSSL；1.x 可避免 urllib3 的 OpenSSL 版本警告。
 urllib3>=1.26,<2.0

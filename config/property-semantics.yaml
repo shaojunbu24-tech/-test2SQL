@@ -1,0 +1,47 @@
+# 对现有本体/映射的语义补充；不虚构单位与状态枚举。
+properties:
+  sourceId: {label: 来源记录ID, type: integer, description: 来源系统内该对象的主键；需查询确认实例存在。}
+  planNo: {label: 生产计划编号, type: string, aliases: [计划编号, 计划编码], description: 业务单号，不等同于数据库主键。}
+  name: {label: 名称, type: string, description: 对象的业务名称，名称可能重复。}
+  plannedQty: {label: 计划数量, type: decimal, description: 该对象计划产出数量，单位待按物料确认。}
+  statusCode: {label: 状态码, description: 来源状态值；枚举中文含义尚未确认。}
+  planStartTime: {label: 计划开始时间, type: datetime}
+  planEndTime: {label: 计划结束时间, type: datetime}
+  taskNo: {label: 工序任务编号, type: string}
+  startTime: {label: 开始时间, type: datetime}
+  finishTime: {label: 完成时间, type: datetime}
+  planId: {label: 所属生产计划ID, type: integer, role: relationship_key}
+  outputProductId: {label: 产出物料ID, type: integer, role: relationship_key, description: 当前计划或工序生产的物料，不是领用的投入物料。}
+  parentId: {label: 父BOM节点ID, type: integer, role: relationship_key, description: 指向BOM行主键，不是父物料ID。}
+  productId: {label: BOM物料ID, type: integer, role: relationship_key}
+  taskId: {label: 工序任务ID, type: integer, role: relationship_key}
+  materialId: {label: 投入物料ID, type: integer, role: relationship_key}
+  standardUsage: {label: 标准单耗, type: decimal, description: 当前MVP解释为单位父项产出所需的子物料数量，需确保投入产出单位可换算。}
+  wastageRate: {label: 损耗率, type: decimal, description: 当前料差公式未应用此字段，数值单位待业务确认。}
+  layer: {label: BOM层级, type: integer}
+  quantity: {label: 数量, type: decimal, description: 一条业务事件明细的数量，不能跨不同物料单位直接相加。}
+  eventTime: {label: 事件时间, type: datetime}
+  batch: {label: 批次, type: string}
+  selfQualifiedQty: {label: 自检合格数量, type: decimal}
+  selfNonconformingQty: {label: 自检不合格数量, type: decimal}
+  reportTime: {label: 报工时间, type: datetime}
+  code: {label: 产品或物料编码, type: string}
+  specification: {label: 规格型号, type: string}
+  goodQty: {label: 质检合格数量, type: decimal}
+  badQty: {label: 质检不合格数量, type: decimal}
+  checkTime: {label: 质检时间, type: datetime}
+  ledgerTypeCode: {label: 台账业务类型码, description: 中文枚举含义尚未确认。}
+relations:
+  PLAN_OUTPUT_PRODUCT: 生产计划产出产品
+  HAS_PLAN_BOM_ITEM: 生产计划采用的BOM明细
+  BOM_ITEM_MATERIAL: BOM行对应的物料
+  HAS_PROCESS_TASK: 生产计划包含的工序任务
+  TASK_BELONGS_TO_PLAN: 工序任务所属生产计划
+  TASK_OUTPUT_PRODUCT: 工序任务产出物料
+  HAS_MATERIAL_ISSUE: 工序任务发生的领料事件
+  ISSUE_MATERIAL: 领料事件领用的投入物料
+  HAS_MATERIAL_RETURN: 工序任务发生的退料事件
+  RETURN_MATERIAL: 退料事件退回的物料
+  HAS_PRODUCTION_REPORT: 工序任务发生的报工
+  HAS_QUALITY_INSPECTION: 报工关联的质检，存在精确和回退路径
+  HAS_INVENTORY_RECEIPT: 报工关联的入库，存在精确和回退路径

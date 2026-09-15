@@ -6,3 +6,5 @@
 __pycache__/
 # macOS Finder 产生的目录元数据不需要提交。
 .DS_Store
+# 在线验证追踪包含业务数据，仅保留本地。
+local-traces/

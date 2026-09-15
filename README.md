@@ -4,19 +4,22 @@
 
 ```text
 自然语言
-→ LangChain 调用模型读取相关本体
-→ 模型生成 Candidate Query IR
+→ LangChain 解析实体类型、定位属性、取值和任务
+→ 按 ID / 编号 / 名称定位真实生产计划（歧义时停止）
+→ 普通问数：模型生成 Query IR；料差分析：注册任务按参数展开 Query IR
 → JSON Schema、实体类型、关系路径和指标依赖校验
 → 按 Query IR 动态组合参数化 SQL
 → 在 mom-test 中只读执行
 → 返回完整阶段追踪
 ```
 
-模型只使用实体、关系、指标和算子，不接触数据库表名、字段名、JOIN、账号或 SQL。
+规划模型使用实体、关系、属性、指标和算子，不接触账号或物理 SQL。查询后可选再次调用模型，根据实际结果回答。
+
+本次优化的字段说明、调用链、任务口径和测试边界见 [优化说明](docs/MVP优化说明.md)。
 
 ## 1. 当前范围
 
-MVP 从生产计划 ID 开始，已经支持：
+MVP 从生产计划 ID、业务编号或名称定位开始，已经支持：
 
 - 当前有效生产计划数量统计；
 - `ProductionPlan → PlanBOMItem → Product` 计划 BOM 遍历；
@@ -25,6 +28,9 @@ MVP 从生产计划 ID 开始，已经支持：
 - `Scan / Traverse / Aggregate / ComputeMetric / Filter / Sort / Project / Limit`；
 - 领料量、退料量、实际报工、额定产出、差异量、差异率和严重度；
 - 命令行和 Streamlit 可视化界面；
+- 点击关系图中的实体或连线，浏览属性、关系定义、指标和数据库映射；
+- 名称匹配多条时显示候选，不自动选第一条；
+- 注册料差分析任务，固定步骤、参数化执行；
 - `mom-test` 只读真实查询。
 
 `ontology-v1` 作为只读本体设计包内置在仓库中，包含 Scope、Data、Behavior、Semantic 四层模型。
@@ -37,6 +43,8 @@ mvp-text-to-sql/
 ├── ontology-v1/                   # 完整本体设计包和语义映射
 ├── config/
 │   ├── mapping.yaml              # 可组合实体、关系、指标物理映射
+│   ├── property-semantics.yaml   # 业务属性说明、别名和关系描述
+│   ├── tasks.yaml                # 固定任务注册及口径边界
 │   └── query-ir.schema.json      # 模型 Candidate Query IR 契约
 ├── examples/
 │   └── query-ir-*.json           # 8 类查询的 Candidate Query IR 样例
@@ -47,6 +55,10 @@ mvp-text-to-sql/
 │       ├── config.py             # 路径、环境和文件加载
 │       ├── ontology.py           # 本体注册表和模型上下文
 │       ├── planner.py            # LangChain Query IR Planner
+│       ├── request_router.py     # 模型解析定位条件和任务参数
+│       ├── entity_resolver.py    # 参数化检索、唯一性判定和规范ID
+│       ├── tasks.py              # 固定分析任务展开为 Query IR
+│       ├── ontology_browser.py   # 点击浏览本体元数据
 │       ├── validator.py          # Schema、类型、关系和依赖校验
 │       ├── compiler.py           # Query IR 动态 SQL 编译器
 │       ├── database.py           # mom-test 只读执行器
@@ -87,7 +99,7 @@ DB_NAME=mom-test
 ```bash
 .venv/bin/python src/main.py \
   "分析生产计划ID 665的投料差异，筛选差异率超过5%的记录" \
-  --execute
+  --execute --answer
 ```
 
 查看模型生成的完整 Query IR 和动态 SQL：
@@ -126,19 +138,21 @@ DB_NAME=mom-test
 ## 5. 启动可视化界面
 
 ```bash
-.venv/bin/streamlit run src/ui.py
+.venv/bin/streamlit run src/ui.py --server.address 127.0.0.1 --server.port 8502
 ```
 
 浏览器访问：
 
 ```text
-http://localhost:8501
+http://127.0.0.1:8502
 ```
 
-界面包含五个页面：
+界面包含七个页面：
 
+- 本体浏览：点击全量关系图中的实体或连线，右侧显示对应属性或关系映射；
 - 本体概览：实体表、关系图和指标表；
-- Query IR：模型实际生成的候选查询计划；
+- 实体定位与任务：原始属性、匹配候选、规范 ID 和注册任务参数；
+- Query IR：实际模型计划或固定任务展开的计划，注明来源；
 - 校验与映射：变量类型、指标依赖和算子物理映射；
 - SQL：动态参数化 SQL 和独立参数；
 - 执行结果：规范实体、数据库结果、阶段耗时和完整追踪 JSON。
@@ -168,7 +182,7 @@ Scan ProductionPlan
 分析生产计划ID 665的投料差异，筛选差异率超过5%的记录
 ```
 
-模型会根据指标依赖增加：
+现在由模型识别为注册料差任务，程序根据已注册的计划和用户参数展开：
 
 ```text
 HAS_PLAN_BOM_ITEM
@@ -179,7 +193,7 @@ ComputeMetric
 Filter severityRate
 ```
 
-因此当前实现不是“意图选择整段 SQL 模板”，而是由 Query IR 决定本次真正需要哪些关系分支和指标组件。
+普通查询仍由模型自由组合受支持的算子；复杂、固定口径的料差分析不再每次重新规划。两条路径都进入同一套 Query IR 校验和 SQL 编译器，不由模型自由编写 SQL。
 
 ## 7. 校验规则
 
@@ -193,7 +207,7 @@ Filter severityRate
 - 派生指标必须具备完整依赖；
 - Project 和 Sort 只能引用白名单字段；
 - 第一步必须是 `Scan`，最后一步必须是 `Limit`；
-- 查询必须有计划 ID，最多返回 200 行。
+- 除全部有效计划计数外，查询必须有计划 ID；最多返回 200 行。
 
 ## 8. 数据库安全边界
 
@@ -211,6 +225,20 @@ Filter severityRate
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 ```
+
+真实数据库冒烟测试（不调用模型）：
+
+```bash
+.venv/bin/python tests/smoke_live.py --output local-traces/optimization-db.json
+```
+
+完整自然语言链路测试（需要模型额度和数据库连接可用）：
+
+```bash
+.venv/bin/python tests/smoke_live.py --with-llm --output local-traces/optimization-e2e.json
+```
+
+`local-traces/` 包含业务结果，已加入 Git 忽略。普通问数会调用请求解析模型和规划模型；固定料差任务仅调用请求解析模型。`--answer` 额外调用结果解读模型。`--from-ir` 跳过请求解析和规划；不加 `--execute` 不访问数据库，因此编号/名称定位会提示需要真实只读查询。
 
 离线回归测试覆盖：
 
