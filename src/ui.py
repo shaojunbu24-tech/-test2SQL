@@ -8,7 +8,11 @@ import streamlit.components.v1 as components
 
 from material_query import MaterialQueryPipeline
 from material_query.query_hits import extract_query_hits
-from material_query.ontology_browser import show_ontology_browser
+from material_query.ontology_browser import (
+    interactive_ontology_dot,
+    show_ontology_browser,
+    show_ontology_detail,
+)
 from material_query.conversation import MAX_CONTEXT_TURNS
 
 
@@ -31,6 +35,24 @@ components.html(
       doc.head.appendChild(meta);
     }
     meta.content = "notranslate";
+    const params = new URLSearchParams(window.parent.location.search);
+    if (params.has("overview_entity") || params.has("overview_relation")) {
+      let attempts = 0;
+      const restoreOverview = window.setInterval(() => {
+        const overviewTab = Array.from(doc.querySelectorAll('[role="tab"]'))
+          .find(node => node.textContent.trim() === "本体概览");
+        if (overviewTab) {
+          overviewTab.click();
+          const cleanUrl = new URL(window.parent.location.href);
+          cleanUrl.searchParams.delete("overview_entity");
+          cleanUrl.searchParams.delete("overview_relation");
+          window.parent.history.replaceState({}, "", cleanUrl);
+          window.clearInterval(restoreOverview);
+        } else if (++attempts > 80) {
+          window.clearInterval(restoreOverview);
+        }
+      }, 50);
+    }
     </script>""",
     height=0,
 )
@@ -262,12 +284,35 @@ with resolution_tab:
         st.info("运行查询后可查看定位属性、候选记录、规范ID和任务参数。")
 
 with ontology_tab:
-    # 第二栏使用独立状态的交互图，点击后在本栏右侧显示详情，不再通过 URL
-    # 跳回“本体浏览”。高度不同也让两个 agraph 组件拥有稳定的独立实例。
-    show_ontology_browser(
-        pipeline.registry, current_hits, state_prefix="overview", height=620,
-        heading="全部逻辑本体关系图与对象详情", show_hit_summary=False,
+    selected_relation = st.query_params.get("overview_relation")
+    selected_entity = st.query_params.get("overview_entity")
+    if selected_relation in pipeline.registry.relations:
+        st.session_state["overview_graph_selected"] = ("relation", selected_relation)
+    elif selected_entity in pipeline.registry.entity_types:
+        st.session_state["overview_graph_selected"] = ("entity", selected_entity)
+    overview_selected_type, overview_selected_id = st.session_state.get(
+        "overview_graph_selected", ("entity", "ProductionPlan"),
     )
+    st.subheader("全部逻辑本体关系图与对象详情")
+    st.caption("本栏保留原 Graphviz 关系图；点击实体或关系后，右侧在本体概览内显示详情。")
+    graph_column, detail_column = st.columns([1.25, 1], gap="large")
+    with graph_column:
+        st.graphviz_chart(
+            interactive_ontology_dot(
+                pipeline.registry,
+                overview_selected_type,
+                overview_selected_id,
+                highlight_entities=[item["id"] for item in (current_hits or {}).get("entities", [])],
+                highlight_relations=[item["id"] for item in (current_hits or {}).get("relations", [])],
+                query_prefix="overview",
+            ),
+            width="stretch",
+        )
+    with detail_column:
+        show_ontology_detail(
+            pipeline.registry, overview_selected_type, overview_selected_id,
+            key_prefix="overview_", query_prefix="overview",
+        )
     context = ontology_overview(pipeline.registry)
     with st.expander("查看本次命中明细与全部清单"):
         if trace:

@@ -23,9 +23,18 @@ def _select_from_picker(selection_key, picker_key):
     st.session_state[selection_key] = (kind, object_id)
 
 
+def _select_query_object(kind, object_id, query_prefix):
+    """让 Graphviz 详情中的端点按钮继续使用该图自己的 URL 状态。"""
+
+    other = f"{query_prefix}_{'relation' if kind == 'entity' else 'entity'}"
+    if other in st.query_params:
+        del st.query_params[other]
+    st.query_params[f"{query_prefix}_{kind}"] = object_id
+
+
 def interactive_ontology_dot(
     registry, selected_type=None, selected_id=None,
-    highlight_entities=None, highlight_relations=None,
+    highlight_entities=None, highlight_relations=None, query_prefix="ontology",
 ):
     """生成带链接的 SVG 图；实体节点和关系连线都可改变当前详情对象。"""
     lines = [
@@ -39,7 +48,7 @@ def interactive_ontology_dot(
     for entity_id, entity in registry.entity_types.items():
         selected = selected_type == "entity" and selected_id == entity_id
         hit = entity_id in highlight_entities
-        url = "?ontology_entity=" + quote(entity_id)
+        url = f"?{query_prefix}_entity=" + quote(entity_id)
         lines.append(
             f'{json.dumps(entity_id)} [label={json.dumps(entity.get("label", entity_id), ensure_ascii=False)}, '
             f'URL={json.dumps(url)}, target="_top", '
@@ -52,7 +61,7 @@ def interactive_ontology_dot(
         description = registry.property_semantics["relations"].get(relation_id, relation_id)
         hit = relation_id in highlight_relations
         color = "#dc2626" if selected else "#ea580c" if hit else "#64748b"
-        url = "?ontology_relation=" + quote(relation_id)
+        url = f"?{query_prefix}_relation=" + quote(relation_id)
         lines.append(
             f'{json.dumps(relation["from"])} -> {json.dumps(relation["to"])} '
             f'[label={json.dumps(description, ensure_ascii=False)}, URL={json.dumps(url)}, target="_top", '
@@ -145,7 +154,7 @@ def _entity_detail(registry, entity_id):
 
 
 def _relation_detail(registry, relation_id, key_prefix="", selection_key="selected_ontology_object",
-                     picker_key="ontology_picker"):
+                     picker_key="ontology_picker", query_prefix=None):
     """显示关系语义、两端实体、可执行状态和 JOIN 定义。"""
     relation = registry.relations[relation_id]
     catalog = next(item for item in registry.relation_catalog(relation["from"])
@@ -169,14 +178,32 @@ def _relation_detail(registry, relation_id, key_prefix="", selection_key="select
     else:
         st.json(catalog["designMapping"])
     left, right = st.columns(2)
+    callback = _select_query_object if query_prefix else _select_object
     with left:
         st.button(f"查看起点：{registry.entity_types[relation['from']]['label']}",
-                  key=key_prefix + "relation_from", on_click=_select_object,
-                  args=("entity", relation["from"], selection_key, picker_key))
+                  key=key_prefix + "relation_from", on_click=callback,
+                  args=(("entity", relation["from"], query_prefix) if query_prefix
+                        else ("entity", relation["from"], selection_key, picker_key)))
     with right:
         st.button(f"查看终点：{registry.entity_types[relation['to']]['label']}",
-                  key=key_prefix + "relation_to", on_click=_select_object,
-                  args=("entity", relation["to"], selection_key, picker_key))
+                  key=key_prefix + "relation_to", on_click=callback,
+                  args=(("entity", relation["to"], query_prefix) if query_prefix
+                        else ("entity", relation["to"], selection_key, picker_key)))
+
+
+def show_ontology_detail(registry, selected_type, selected_id, key_prefix="overview_",
+                         query_prefix="overview"):
+    """供 Graphviz 概览复用右侧详情，不引入 streamlit-agraph。"""
+
+    st.subheader("选中对象详情")
+    if selected_type == "entity":
+        _entity_detail(registry, selected_id)
+    else:
+        _relation_detail(
+            registry, selected_id, key_prefix,
+            key_prefix + "selected_ontology_object", key_prefix + "ontology_picker",
+            query_prefix,
+        )
 
 
 def show_ontology_browser(registry, query_hits=None, state_prefix="", height=680,

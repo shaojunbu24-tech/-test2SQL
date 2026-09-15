@@ -146,14 +146,12 @@ class ResolutionTaskTests(unittest.TestCase):
         self.assertEqual("NEEDS_INPUT", app.session_state["trace"]["status"])
 
     def test_overview_has_independent_inline_object_details(self):
-        """第二栏选择对象应在本栏使用独立状态显示详情，不通过 URL 跳转。"""
+        """第二栏 Graphviz 使用独立 URL 状态，并在本栏渲染选中对象详情。"""
         from streamlit.testing.v1 import AppTest
-        app = AppTest.from_file(str(PROJECT / "src/ui.py"), default_timeout=20).run()
-        self.assertGreaterEqual(len(app.selectbox), 2)
-        app.selectbox[1].select("entity:PlanBOMItem").run()
-        self.assertEqual(("entity", "PlanBOMItem"),
-                         app.session_state["overview_selected_ontology_object"])
-        self.assertEqual("entity:PlanBOMItem", app.session_state["overview_ontology_picker"])
+        app = AppTest.from_file(str(PROJECT / "src/ui.py"), default_timeout=20)
+        app.query_params["overview_entity"] = "PlanBOMItem"
+        app.run()
+        self.assertTrue(any(item.value == "mom:plan-bom-item:{sourceId}" for item in app.code))
         self.assertEqual("计划版本BOM明细",
                          self.registry.entity_types["PlanBOMItem"]["label"])
         self.assertFalse(app.exception)
@@ -177,6 +175,9 @@ class ResolutionTaskTests(unittest.TestCase):
         self.assertIn('URL="?ontology_entity=ProductionPlan"', dot)
         self.assertIn('URL="?ontology_relation=HAS_PROCESS_TASK"', dot)
         self.assertIn('color="#dc2626"', dot)
+        overview = interactive_ontology_dot(self.registry, query_prefix="overview")
+        self.assertIn('URL="?overview_entity=ProductionPlan"', overview)
+        self.assertIn('URL="?overview_relation=HAS_PROCESS_TASK"', overview)
 
     def test_query_hits_highlight_full_graph(self):
         """查询命中应叠加到全量图，而不是另画一张无法浏览的子图。"""
